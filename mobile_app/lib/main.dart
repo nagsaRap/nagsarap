@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'screens/auth/login_screen.dart';
+import 'theme/app_colors.dart';
 
 void main() {
   runApp(const AttendanceApp());
@@ -11,30 +13,14 @@ class AttendanceApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Attendance System',
+      title: 'CCIS Attendance',
       theme: ThemeData(
         useMaterial3: true,
+        scaffoldBackgroundColor: AppColors.background,
+        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.navy),
+        fontFamily: 'Arial',
       ),
-      home: const HomeScreen(),
-    );
-  }
-}
-
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Text(
-          'Attendance System',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
+      home: const LoginScreen(),
     );
   }
 }
