@@ -1,0 +1,10 @@
+
+import { useNavigate } from 'react-router-dom'
+const attendees=[['Chell Sanggabriel','7:42 AM'],['Jay Lawrence Gaspar','7:42 AM'],['Kim Mingyu','7:50 AM'],['Vern Jeonghan','7:51 AM'],['Juan Dela Cruz','7:51 AM']]
+export default function Dashboard(){const nav=useNavigate();return <div className="page">
+ <div className="card event-strip"><div><small>TODAY'S EVENT</small><h3 style={{margin:'4px 0'}}>GENERAL ASSEMBLY <span className="badge green">ON-GOING</span></h3><small>Aug 14, 2026 • 7:00 AM - 8:00 AM</small></div><div style={{color:'#888'}}>CCIS Lobby 1</div></div>
+ <div className="grid-2" style={{marginTop:18}}><div className="card metric"><div className="section-title">Present</div><h2>768</h2><small>of 1,015 students</small><h3>75.81%</h3><small>Attendance Rate</small></div>
+ <div className="card chart"><div className="section-title">LIVE ATTENDANCE</div><svg viewBox="0 0 600 200"><polyline fill="none" stroke="#3030d0" strokeWidth="4" points="20,170 90,145 160,110 230,80 300,58 370,42 440,34 520,30"/><line x1="20" y1="175" x2="560" y2="175" stroke="#aaa"/></svg></div></div>
+ <div className="grid-2-equal" style={{marginTop:18}}><div className="card" style={{padding:16}}><div className="section-title">Attendance Status</div><div className="status-stack"><div className="status-card"><span><span className="dot green"/>Present</span><b>768</b></div><div className="status-card"><span><span className="dot yellow"/>Pending Sync</span><b>17</b></div><div className="status-card"><span><span className="dot red"/>Absent</span><b>228</b></div></div></div>
+ <div className="card" style={{padding:16}}><div style={{display:'flex',justifyContent:'space-between'}}><div className="section-title">WHO ARE PRESENT IN TODAY'S EVENT</div><button className="btn secondary" onClick={()=>nav('/organizer/students')}>View All</button></div><table className="table"><tbody>{attendees.map((a,i)=><tr key={a[0]}><td><div className="person"><div className="avatar">{i+1}</div>{a[0]}</div></td><td>{a[1]}</td><td><span className="badge green">Present</span></td></tr>)}</tbody></table></div></div>
+ </div>}
