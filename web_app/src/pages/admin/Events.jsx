@@ -1,4 +1,45 @@
-
 import { useState } from 'react'
-const events=[{title:'General Assembly',status:'approved'},{title:'College Re-Organization',status:'pending'},{title:'Leadership Seminar',status:'completed'},{title:'Intramurals',status:'declined'}]
-export default function Events(){const[tab,setTab]=useState('all');const shown=tab==='all'?events:events.filter(e=>e.status===tab);return <div className="page"><h2>Events</h2><div className="tabs">{['all','approved','pending','completed','declined'].map(t=><div key={t} className={`tab ${tab===t?'active':''}`} onClick={()=>setTab(t)}>{t[0].toUpperCase()+t.slice(1)}</div>)}</div><div className="event-list" style={{marginTop:16}}>{shown.map(e=><div key={e.title} className={`card event-card ${e.status}`}><div><h3>{e.title}</h3><small>August 14, 2026 • 7:00 AM - 8:00 AM<br/>CCIS Lobby 1</small></div><div className="actions">{e.status==='pending'?<><button className="btn secondary">Decline</button><button className="btn">Approve</button></>:<button className="btn secondary">View Report</button>}</div></div>)}</div></div>}
+import { organizerEvents as initialEvents } from '../../data/mockData'
+
+export default function AdminEvents() {
+  const [events, setEvents] = useState(initialEvents)
+  const [tab, setTab] = useState('all')
+
+  const shown = tab === 'all' ? events : events.filter(e => e.status === tab)
+
+  const changeStatus = (id, status) => {
+    setEvents(events.map(e => e.id === id ? {...e, status} : e))
+  }
+
+  return (
+    <div className="page">
+      <section className="card content-card">
+        <div className="tabs">
+          {['all','approved','pending','completed','declined'].map(t => (
+            <button key={t} className={`${tab === t ? 'active' : ''} ${t}`} onClick={()=>setTab(t)}>
+              {t[0].toUpperCase()+t.slice(1)}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <div className="event-list">
+        {shown.map(event => (
+          <article className={`event-row ${event.status}`} key={event.id}>
+            <div><h3>{event.title}</h3><small>▣ {event.date} &nbsp; ◷ {event.time}</small><small>⌖ {event.location}</small></div>
+            <div className="event-buttons">
+              {event.status === 'pending' ? (
+                <>
+                  <button className="primary-btn small" onClick={()=>changeStatus(event.id, 'declined')}>Decline</button>
+                  <button className="primary-btn small" onClick={()=>changeStatus(event.id, 'approved')}>Approve</button>
+                </>
+              ) : (
+                <button className="primary-btn small" onClick={()=>alert(`View report: ${event.title}`)}>View Report</button>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  )
+}

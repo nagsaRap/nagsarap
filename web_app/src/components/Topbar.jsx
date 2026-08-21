@@ -1,23 +1,49 @@
-
+import { Bell, UserCircle, ChevronDown, Menu } from 'lucide-react'
 import { useState } from 'react'
-import { Bell, UserCircle, ChevronDown } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-export default function Topbar({title='Dashboard'}){
-  const [open,setOpen]=useState(false); const nav=useNavigate()
-  const session=JSON.parse(localStorage.getItem('attendance_session')||'{}')
-  const logout=()=>{localStorage.removeItem('attendance_session');nav('/login')}
-  return <header className="topbar">
-    <div className="top-title">{title}</div>
-    <div style={{display:'flex',alignItems:'center',gap:16,position:'relative'}}>
-      <Bell size={18}/>
-      <div className="user-menu" onClick={()=>setOpen(!open)}>
-        <UserCircle size={22}/><div><b>{session.role==='admin'?'Admin':'Organizer'}</b><br/>{session.name||'User'}</div><ChevronDown size={14}/>
+
+export default function Topbar({ title, onMenu }) {
+  const [open, setOpen] = useState(false)
+  const navigate = useNavigate()
+  const session = JSON.parse(localStorage.getItem('attendance_session') || '{}')
+
+  const logout = () => {
+    localStorage.removeItem('attendance_session')
+    navigate('/login')
+  }
+
+  return (
+    <header className="topbar">
+      <div className="topbar-left">
+        <button className="mobile-menu-btn" onClick={onMenu}><Menu size={22} /></button>
+        <h1>{title}</h1>
       </div>
-      {open&&<div className="profile-pop">
-        <div className="item"><b>{session.name||'User'}</b><br/><small>{session.id||'23-140023'}</small></div>
-        <div className="item">Personal Information</div><div className="item">Settings</div><div className="item">About</div>
-        <div className="item" style={{color:'red',cursor:'pointer'}} onClick={logout}>Log Out</div>
-      </div>}
-    </div>
-  </header>
+
+      <div className="top-actions">
+        <Bell size={18} />
+
+        <button className="user-chip" onClick={() => setOpen(!open)}>
+          <UserCircle size={23} />
+          <span className="user-meta">
+            <b>{session.role === 'admin' ? 'Admin' : 'Organizer'}</b>
+            <small>{session.name}</small>
+          </span>
+          <ChevronDown size={14} />
+        </button>
+
+        {open && (
+          <div className="profile-dropdown">
+            <div className="profile-head">
+              <b>{session.name}</b>
+              <small>{session.id}</small>
+            </div>
+            <button>Personal Information</button>
+            <button>Settings</button>
+            <button>About</button>
+            <button className="danger" onClick={logout}>Log Out</button>
+          </div>
+        )}
+      </div>
+    </header>
+  )
 }

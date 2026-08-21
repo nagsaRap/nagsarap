@@ -1,3 +1,36 @@
-
 import { useState } from 'react'
-export default function Kiosk(){const [success,setSuccess]=useState(false);return <div className="page kiosk"><div className="card" style={{padding:16}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}><div><b>GENERAL ASSEMBLY</b> <span className="badge green">ON-GOING</span></div><small>Aug 14, 2026 • CCIS Lobby 1</small></div><div className="camera-frame" onClick={()=>setSuccess(true)}><div className="corner tl"/><div className="corner tr"/><div className="corner bl"/><div className="corner br"/><div className="face-oval"/></div><div style={{textAlign:'center',fontWeight:800,paddingTop:10}}>READY FOR FACE SCAN<br/>LOOK AT THE CAMERA</div></div>{success&&<div className="modal-backdrop"><div className="modal"><div className="big-icon green" style={{width:64,height:64,fontSize:34}}>✓</div><h3>Attendance Record successfully</h3><p>Greetings Cabie, Lowell 23-140023</p><button className="btn" onClick={()=>setSuccess(false)}>Continue</button></div></div>}</div>}
+
+export default function Kiosk() {
+  const [success, setSuccess] = useState(false)
+
+  return (
+    <div className="page">
+      <section className="card kiosk-card">
+        <div className="kiosk-head">
+          <div><b>GENERAL ASSEMBLY</b> <span className="badge green">ON-GOING</span></div>
+          <small>▣ August 14, 2026 &nbsp;&nbsp; ◷ 7:00 AM - 8:00 AM</small>
+        </div>
+
+        <div className="tips">💡 Tips: Make sure your face is visible and well lit before scanning.</div>
+
+        <div className="camera-frame" onClick={() => setSuccess(true)}>
+          <div className="corner tl"></div><div className="corner tr"></div><div className="corner bl"></div><div className="corner br"></div>
+          <div className="face-oval"></div>
+        </div>
+
+        <div className="camera-caption">READY FOR FACE SCAN<br />LOOK AT THE CAMERA</div>
+      </section>
+
+      {success && (
+        <div className="modal-backdrop" onClick={() => setSuccess(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="success-circle">✓</div>
+            <h3>Attendance Record successfully</h3>
+            <p>Greetings Cabie, Lowell 23-140023</p>
+            <button className="primary-btn" onClick={() => setSuccess(false)}>Continue</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

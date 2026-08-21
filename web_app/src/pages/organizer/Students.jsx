@@ -1,3 +1,36 @@
+import { attendees } from '../../data/mockData'
 
-const names=['Chell Sanggabriel','Jay Lawrence Gaspar','Kim Mingyu','Vern Jeonghan','Juan Dela Cruz','Choi Seungcheol','Joshua Hong','Jeon Wonwoo','Lee Seokmin','Xu Minghao','Kwon Soonyoung','Boo Seungkwan']
-export default function Students(){return <div className="page"><div className="filters"><input placeholder="Search Student ID or Name" style={{flex:1}}/><select><option>Course</option></select><select><option>Section</option></select></div><div className="card" style={{padding:16}}><div className="grid-2-equal">{[0,1].map(col=><table className="table" key={col}><tbody>{names.slice(col*6,col*6+6).map((n,i)=><tr key={n}><td><div className="person"><div className="avatar">{i+1}</div>{n}</div></td><td>7:{42+i} AM</td><td><span className="badge green">Present</span></td></tr>)}</tbody></table>)}</div></div></div>}
+export default function OrganizerStudents() {
+  const rows = [...attendees, ...attendees]
+
+  return (
+    <div className="page">
+      <section className="card content-card">
+        <div className="filters">
+          <input placeholder="Search Student ID or Name" />
+          <select><option>Course</option></select>
+          <select><option>Section</option></select>
+        </div>
+
+        <div className="student-columns">
+          {[rows.slice(0, 5), rows.slice(5, 10)].map((group, idx) => (
+            <div className="student-list" key={idx}>
+              {group.map((a, i) => (
+                <div className="student-row" key={i}>
+                  <div className="avatar">{i + 1}</div>
+                  <div className="student-name"><b>{a[0]}</b><small>{a[1]}</small></div>
+                  <span>{a[2]}</span>
+                  <span className="badge green">Present</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        <div className="pagination">
+          <button>← Previous</button><button className="active">1</button><button>2</button><button>3</button><span>...</span><button>67</button><button>68</button><button>Next →</button>
+        </div>
+      </section>
+    </div>
+  )
+}

@@ -1,4 +1,49 @@
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { organizerEvents } from '../../data/mockData'
 
-import { useState } from 'react';import { useNavigate } from 'react-router-dom'
-const all=[{title:'General Assembly',status:'approved'},{title:'College Re-Organization',status:'pending'},{title:'Leadership Seminar',status:'completed'},{title:'Intramurals',status:'declined'}]
-export default function Events(){const[tab,setTab]=useState('all');const nav=useNavigate();const filtered=tab==='all'?all:all.filter(x=>x.status===tab);return <div className="page"><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h2>My Events</h2><button className="btn" onClick={()=>nav('/organizer/events/new')}>+ Create Event</button></div><div className="tabs">{['all','approved','pending','completed','declined'].map(t=><div key={t} className={`tab ${tab===t?'active':''}`} onClick={()=>setTab(t)}>{t[0].toUpperCase()+t.slice(1)}</div>)}</div><div className="event-list" style={{marginTop:16}}>{filtered.map(e=><div className={`card event-card ${e.status}`} key={e.title}><div><h3 style={{margin:'0 0 5px'}}>{e.title}</h3><small>August 14, 2026 • 7:00 AM - 8:00 AM<br/>CCIS Lobby 1</small></div><div className="actions"><button className="btn secondary">{e.status==='pending'?'View':'View Report'}</button><button className="btn">Edit</button></div></div>)}</div></div>}
+export default function OrganizerEvents() {
+  const [tab, setTab] = useState('all')
+  const navigate = useNavigate()
+
+  const events = tab === 'all' ? organizerEvents : organizerEvents.filter(e => e.status === tab)
+
+  const doAction = (label, event) => alert(`${label}: ${event.title}`)
+
+  return (
+    <div className="page">
+      <section className="card content-card">
+        <div className="section-head">
+          <h2>My Events</h2>
+          <button className="primary-btn" onClick={() => navigate('/organizer/events/new')}>+ Create Event</button>
+        </div>
+
+        <div className="tabs">
+          {['all', 'approved', 'pending', 'completed', 'declined'].map(t => (
+            <button key={t} className={`${tab === t ? 'active' : ''} ${t}`} onClick={() => setTab(t)}>
+              {t[0].toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <div className="event-list">
+        {events.map(event => (
+          <article className={`event-row ${event.status}`} key={event.id}>
+            <div>
+              <h3>{event.title}</h3>
+              <small>▣ {event.date} &nbsp;&nbsp; ◷ {event.time}</small>
+              <small>⌖ {event.location}</small>
+            </div>
+            <div className="event-buttons">
+              <button className="primary-btn small" onClick={() => doAction(event.status === 'approved' ? 'View Attendance' : event.status === 'pending' ? 'View' : 'View Report', event)}>
+                {event.status === 'approved' ? 'View Attendance' : event.status === 'pending' ? 'View' : 'View Report'}
+              </button>
+              <button className="primary-btn small" onClick={() => doAction('Edit', event)}>Edit</button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  )
+}
