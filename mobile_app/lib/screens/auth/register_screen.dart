@@ -1,42 +1,46 @@
 import 'package:flutter/material.dart';
-import '../../theme/app_colors.dart';
-import '../../widgets/app_field.dart';
-import '../../widgets/brand_logo.dart';
+import '../../core/app_theme.dart';
+import '../../widgets/app_logo.dart';
 import '../../widgets/primary_button.dart';
-import 'login_screen.dart';
 
-class RegisterScreen extends StatelessWidget {
+class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
-  void _success(BuildContext context) {
+  @override
+  State<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends State<RegisterScreen> {
+  bool loading = false;
+
+  Future<void> _register() async {
+    setState(() => loading = true);
+    await Future.delayed(const Duration(milliseconds: 1000));
+    if (!mounted) return;
+    setState(() => loading = false);
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Icon(Icons.check_circle, color: AppColors.success, size: 54),
+        content: const Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircleAvatar(
-              radius: 24,
-              backgroundColor: AppColors.success,
-              child: Icon(Icons.check, color: Colors.white, size: 32),
-            ),
-            const SizedBox(height: 16),
-            const Text('Registration successful', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            const Text('Your account has been created.\nYou can now log in.',
-                textAlign: TextAlign.center, style: TextStyle(color: AppColors.muted, fontSize: 11)),
-            const SizedBox(height: 16),
-            PrimaryButton(
-              text: 'Go to Log in',
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-              },
-            ),
+            Text('Registration successful', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+            SizedBox(height: 8),
+            Text('Your account has been created. You can now log in.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.muted)),
           ],
         ),
+        actions: [
+          PrimaryButton(
+            label: 'Go to login',
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pop(context);
+            },
+          )
+        ],
       ),
     );
   }
@@ -46,90 +50,78 @@ class RegisterScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.navy,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             Container(
-              width: double.infinity,
               color: Colors.white,
-              padding: const EdgeInsets.only(top: 18, bottom: 10),
-              child: const Column(
-                children: [
-                  BrandLogo(size: 72),
-                  SizedBox(height: 6),
-                  Text('CCIS', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-                  Text('Student Attendance System', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30)),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen())),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 11),
-                        child: Center(child: Text('Log in', style: TextStyle(fontSize: 12))),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Container(
-                      margin: const EdgeInsets.all(4),
-                      padding: const EdgeInsets.symmetric(vertical: 11),
-                      decoration: BoxDecoration(color: AppColors.navy, borderRadius: BorderRadius.circular(24)),
-                      child: const Center(child: Text('Register', style: TextStyle(color: Colors.white, fontSize: 12))),
-                    ),
-                  ),
-                ],
-              ),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              child: const Center(child: AppLogo(size: 66)),
             ),
             Expanded(
               child: Container(
-                padding: const EdgeInsets.all(16),
+                width: double.infinity,
                 decoration: const BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
                 ),
                 child: ListView(
+                  padding: const EdgeInsets.all(20),
                   children: [
-                    const Row(
+                    Row(
                       children: [
-                        Expanded(child: AppField(label: 'First Name', hint: 'First Name')),
-                        SizedBox(width: 8),
-                        Expanded(child: AppField(label: 'Last Name', hint: 'Last Name')),
+                        IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back)),
+                        const Text('Create your account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    const AppField(label: 'Student Number', hint: '00-000000'),
-                    const SizedBox(height: 10),
-                    const AppField(label: 'Email Address', hint: 'example@email.com'),
-                    const SizedBox(height: 10),
-                    const AppField(label: 'Set Password', hint: 'Password', obscureText: true),
-                    const SizedBox(height: 10),
-                    const AppField(label: 'Confirm Password', hint: 'Confirm Password', obscureText: true),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
+                    const _Field(label: 'First Name', hint: 'First name'),
+                    const _Field(label: 'Last Name', hint: 'Last name'),
+                    const _Field(label: 'Student Number', hint: '00-000000'),
+                    const _Field(label: 'Email Address', hint: 'example@mmsu.edu.ph'),
+                    const _Field(label: 'Program / Section', hint: 'BSCS 4A'),
+                    const _Field(label: 'Set Password', hint: 'Password', obscure: true),
+                    const _Field(label: 'Confirm Password', hint: 'Confirm password', obscure: true),
+                    const SizedBox(height: 8),
                     OutlinedButton.icon(
-                      onPressed: () {},
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(62),
-                        side: const BorderSide(color: AppColors.border),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Form 5 upload UI only for now.'))),
+                      icon: const Icon(Icons.upload_file),
+                      label: const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 15),
+                        child: Text('Upload Form 5'),
                       ),
-                      icon: const Icon(Icons.upload_file, color: Colors.black),
-                      label: const Text('Upload your Form 5 here\nBrowse',
-                          textAlign: TextAlign.center, style: TextStyle(color: Colors.black54, fontSize: 10)),
                     ),
                     const SizedBox(height: 12),
-                    PrimaryButton(text: 'Register', onPressed: () => _success(context)),
+                    PrimaryButton(label: 'Register', loading: loading, onPressed: _register),
                   ],
                 ),
               ),
-            )
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _Field extends StatelessWidget {
+  final String label;
+  final String hint;
+  final bool obscure;
+  const _Field({required this.label, required this.hint, this.obscure = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 5),
+          TextField(obscureText: obscure, decoration: InputDecoration(hintText: hint)),
+        ],
       ),
     );
   }

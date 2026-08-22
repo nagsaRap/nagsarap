@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'core/app_theme.dart';
 import 'screens/auth/login_screen.dart';
-import 'theme/app_colors.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const AttendanceApp());
 }
 
@@ -12,14 +13,9 @@ class AttendanceApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'CCIS Attendance System',
       debugShowCheckedModeBanner: false,
-      title: 'CCIS Attendance',
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: AppColors.background,
-        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.navy),
-        fontFamily: 'Arial',
-      ),
+      theme: buildAppTheme(),
       home: const LoginScreen(),
     );
   }

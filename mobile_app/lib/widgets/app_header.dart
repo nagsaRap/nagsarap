@@ -1,46 +1,39 @@
 import 'package:flutter/material.dart';
-import '../theme/app_colors.dart';
+import '../core/app_theme.dart';
 
 class AppHeader extends StatelessWidget {
-  final VoidCallback? onProfileTap;
-  const AppHeader({super.key, this.onProfileTap});
+  final VoidCallback onProfileTap;
+  const AppHeader({super.key, required this.onProfileTap});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       color: AppColors.navy,
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      child: SafeArea(
-        bottom: false,
-        child: Row(
-          children: [
-            const CircleAvatar(
-              radius: 17,
-              backgroundColor: Colors.white,
-              child: Icon(Icons.school_rounded, color: AppColors.navy, size: 20),
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 12,
+        top: MediaQuery.of(context).padding.top + 10,
+        bottom: 11,
+      ),
+      child: Row(
+        children: [
+          Image.asset('assets/images/ccis_logo.png', width: 38, height: 38),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Welcome, Reina', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800)),
+                SizedBox(height: 2),
+                Text('23-140023', style: TextStyle(color: Color(0xFFD6D3FF), fontSize: 10)),
+              ],
             ),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Welcome, Reina',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
-                  Text('23-140023',
-                      style: TextStyle(color: Colors.white70, fontSize: 10)),
-                ],
-              ),
-            ),
-            InkWell(
-              onTap: onProfileTap,
-              borderRadius: BorderRadius.circular(50),
-              child: const Padding(
-                padding: EdgeInsets.all(4),
-                child: Icon(Icons.account_circle_outlined, color: AppColors.yellow, size: 28),
-              ),
-            )
-          ],
-        ),
+          ),
+          IconButton(
+            onPressed: onProfileTap,
+            icon: const Icon(Icons.account_circle_outlined, color: AppColors.gold, size: 28),
+          )
+        ],
       ),
     );
   }

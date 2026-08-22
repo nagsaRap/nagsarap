@@ -1,104 +1,136 @@
 import 'package:flutter/material.dart';
-import '../../theme/app_colors.dart';
-import '../../widgets/app_field.dart';
-import '../../widgets/brand_logo.dart';
+import '../../core/app_theme.dart';
+import '../../widgets/app_logo.dart';
 import '../../widgets/primary_button.dart';
-import '../main_shell.dart';
 import 'register_screen.dart';
+import '../home/main_shell.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final studentId = TextEditingController(text: '23-140023');
+  final password = TextEditingController();
   bool remember = false;
+  bool obscure = true;
+  bool loading = false;
+
+  Future<void> _login() async {
+    setState(() => loading = true);
+    await Future.delayed(const Duration(milliseconds: 850));
+    if (!mounted) return;
+    setState(() => loading = false);
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainShell()));
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.navy,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
-            Container(
-              width: double.infinity,
-              color: Colors.white,
-              padding: const EdgeInsets.only(top: 22, bottom: 14),
-              child: const Column(
-                children: [
-                  BrandLogo(),
-                  SizedBox(height: 8),
-                  Text('CCIS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-                  Text('Student Attendance System', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30)),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      margin: const EdgeInsets.all(4),
-                      padding: const EdgeInsets.symmetric(vertical: 11),
-                      decoration: BoxDecoration(color: AppColors.navy, borderRadius: BorderRadius.circular(24)),
-                      child: const Center(child: Text('Log in', style: TextStyle(color: Colors.white, fontSize: 12))),
-                    ),
-                  ),
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                      ),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 11),
-                        child: Center(child: Text('Register', style: TextStyle(fontSize: 12))),
-                      ),
-                    ),
-                  )
-                ],
+            Expanded(
+              flex: 4,
+              child: Container(
+                width: double.infinity,
+                color: Colors.white,
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 14),
+                child: const Center(child: AppLogo(size: 95)),
               ),
             ),
             Expanded(
+              flex: 7,
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
                 decoration: const BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
                 ),
                 child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
                   children: [
-                    const AppField(label: 'Student ID', hint: '23-140023'),
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: AppColors.line),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () {},
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.navy,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                              ),
+                              child: const Text('Log in'),
+                            ),
+                          ),
+                          Expanded(
+                            child: TextButton(
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RegisterScreen())),
+                              child: const Text('Register', style: TextStyle(color: AppColors.ink)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text('Student ID', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: studentId,
+                      decoration: const InputDecoration(prefixIcon: Icon(Icons.badge_outlined), hintText: '23-140023'),
+                    ),
                     const SizedBox(height: 14),
-                    const AppField(label: 'Password', hint: 'Enter your Password', obscureText: true),
-                    const SizedBox(height: 5),
+                    const Text('Password', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: password,
+                      obscureText: obscure,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        hintText: 'Enter your password',
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(() => obscure = !obscure),
+                          icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
                     Row(
                       children: [
-                        Checkbox(
-                          value: remember,
-                          visualDensity: VisualDensity.compact,
-                          onChanged: (v) => setState(() => remember = v ?? false),
-                        ),
-                        const Text('Remember me', style: TextStyle(fontSize: 10)),
+                        Checkbox(value: remember, onChanged: (v) => setState(() => remember = v ?? false)),
+                        const Text('Remember me', style: TextStyle(fontSize: 11)),
                         const Spacer(),
                         TextButton(
-                          onPressed: () {},
-                          child: const Text('Forgot password?', style: TextStyle(color: Colors.black, fontSize: 10)),
-                        )
+                          onPressed: () => showDialog(
+                            context: context,
+                            builder: (_) => AlertDialog(
+                              title: const Text('Coming later'),
+                              content: const Text('Password recovery will be connected to the backend later.'),
+                              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                            ),
+                          ),
+                          child: const Text('Forgot password?', style: TextStyle(fontSize: 11)),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    PrimaryButton(
-                      text: 'Log in',
-                      onPressed: () => Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (_) => const MainShell()),
-                      ),
+                    PrimaryButton(label: 'Log in', loading: loading, onPressed: _login),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Prototype UI — university authentication will be connected later.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.muted, fontSize: 10),
                     ),
                   ],
                 ),
