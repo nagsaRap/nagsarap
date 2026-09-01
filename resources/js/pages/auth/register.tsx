@@ -11,13 +11,11 @@ import {
     Mail,
     User,
     Hash,
-    Upload,
     FileText,
     CheckCircle2,
-    AlertCircle,
-    Loader2,
+    Upload,
 } from 'lucide-react';
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, ChangeEvent } from 'react';
 
 type Props = {
     teamInvitation?: {
@@ -32,12 +30,22 @@ const iconClass =
     'pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400';
 
 export default function Register({}: Props) {
-    const [facePhotoName, setFacePhotoName] = useState<string>('');
     const [form5Name, setForm5Name] = useState<string>('');
-    const [isValidatingFace, setIsValidatingFace] = useState<boolean>(false);
-    const [faceValidationError, setFaceValidationError] = useState<string | null>(null);
+    const [photoName, setPhotoName] = useState<string>('');
+    const [isValidatingPhoto, setIsValidatingPhoto] = useState<boolean>(false);
 
-    const { data, setData, post, processing, errors, reset } = useForm({
+    const { data, setData, post, processing, errors, reset, setError, clearErrors } = useForm<{
+        student_number: string;
+        surname: string;
+        firstname: string;
+        middlename: string;
+        ext: string;
+        email: string;
+        password: string;
+        password_confirmation: string;
+        profile_photo: File | null;
+        form_5: File | null;
+    }>({
         student_number: '',
         surname: '',
         firstname: '',
@@ -46,9 +54,8 @@ export default function Register({}: Props) {
         email: '',
         password: '',
         password_confirmation: '',
-        face_photo: null as File | null,
-        face_embedding: '' as string, // <--- Stores stringified keypoints JSON
-        form_5: null as File | null,
+        profile_photo: null,
+        form_5: null,
     });
 
     const formatStudentNumber = (value: string) => {
@@ -62,47 +69,39 @@ export default function Register({}: Props) {
         return numbers;
     };
 
-    const handleFacePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // =========================================================================
+    // CLIENT-SIDE FACE VALIDATION HANDLER
+    // =========================================================================
+    const handleProfilePhotoChange = async (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        setIsValidatingFace(true);
-        setFaceValidationError(null);
+        setIsValidatingPhoto(true);
+        clearErrors('profile_photo');
 
-        // Pre-validate photo quality & extract facial keypoint embeddings
-        const validation = await validateFaceImage(file);
-        setIsValidatingFace(false);
+        // 1. Run MediaPipe face quality checks (Blur, Face count, ratio)
+        const result = await validateFaceImage(file);
 
-        if (!validation.isValid) {
-            setFaceValidationError(validation.message || 'Invalid face photo.');
-            setFacePhotoName('');
-            setData((prevData) => ({
-                ...prevData,
-                face_photo: null,
-                face_embedding: '',
-            }));
-            e.target.value = ''; // Reset input element
+        if (!result.isValid) {
+            setError('profile_photo', result.message || 'Invalid face photo.');
+            setData('profile_photo', null);
+            setPhotoName('');
+            e.target.value = ''; // Reset file input element
+            setIsValidatingPhoto(false);
             return;
         }
 
-        // Passed face validation check: Save photo & stringified facial embedding
-        setFaceValidationError(null);
-        setFacePhotoName(file.name);
-        
-        setData((prevData) => ({
-            ...prevData,
-            face_photo: file,
-            face_embedding: JSON.stringify(validation.embedding),
-        }));
+        // 2. Set file in state if face checks pass
+        setData('profile_photo', file);
+        setPhotoName(file.name);
+        setIsValidatingPhoto(false);
     };
 
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
 
-        if (isValidatingFace) return;
-
         post('/register', {
-            forceFormData: true,
+            forceFormData: true, // <--- Required for binary PDF uploads
             onSuccess: () => reset('password', 'password_confirmation'),
         });
     };
@@ -135,7 +134,7 @@ export default function Register({}: Props) {
                         <h1 className="text-4xl font-extrabold tracking-wider text-[#F5A623]">CCIS</h1>
                         <h2 className="mt-1 text-xl font-bold tracking-wide">Attendance System</h2>
                         <p className="mx-auto mt-4 max-w-xs text-sm leading-relaxed text-white/70">
-                            Create your student account and experience smarter attendance tracking.
+                            Create your student account, upload your profile picture, and verify your Form 5.
                         </p>
                         <div className="mx-auto mt-8 h-1 w-16 rounded-full bg-[#F5A623]" />
                     </div>
@@ -146,7 +145,7 @@ export default function Register({}: Props) {
                     <div className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-8 shadow-xl lg:p-9">
                         <div className="mb-7 text-center">
                             <h3 className="text-2xl font-bold text-[#1B1F5C]">Create Student Account</h3>
-                            <p className="mt-2 text-xs text-gray-500">Register for the CCIS Attendance System</p>
+                            <p className="mt-2 text-xs text-gray-500">Fill in your information and attach required documents</p>
                         </div>
 
                         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -183,7 +182,6 @@ export default function Register({}: Props) {
 
                             {/* SURNAME + FIRST NAME */}
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                {/* SURNAME */}
                                 <div className="grid gap-2">
                                     <Label htmlFor="surname" className="text-xs font-semibold text-gray-700">
                                         Surname <span className="ml-1 text-[#F5A623]">*</span>
@@ -206,7 +204,6 @@ export default function Register({}: Props) {
                                     <InputError message={errors.surname} />
                                 </div>
 
-                                {/* FIRST NAME */}
                                 <div className="grid gap-2">
                                     <Label htmlFor="firstname" className="text-xs font-semibold text-gray-700">
                                         First Name <span className="ml-1 text-[#F5A623]">*</span>
@@ -329,19 +326,19 @@ export default function Register({}: Props) {
                                 <InputError message={errors.password_confirmation} />
                             </div>
 
-                            {/* FACE PHOTO */}
+                            {/* PROFILE PHOTO UPLOAD */}
                             <div className="grid gap-2">
-                                <Label htmlFor="face_photo" className="text-xs font-semibold text-gray-700">
-                                    Reference Photo (Face Liveness) <span className="ml-1 text-[#F5A623]">*</span>
+                                <Label htmlFor="profile_photo" className="text-xs font-semibold text-gray-700">
+                                    Profile Picture <span className="ml-1 text-[#F5A623]">*</span>
                                 </Label>
                                 <label
-                                    htmlFor="face_photo"
+                                    htmlFor="profile_photo"
                                     className="group flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-white px-4 py-3 transition-all hover:border-[#F5A623] hover:bg-[#FFFBF3]"
                                 >
                                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#1B1F5C]/10 transition-colors group-hover:bg-[#F5A623]/20">
-                                        {isValidatingFace ? (
-                                            <Loader2 className="h-4 w-4 animate-spin text-[#1B1F5C]" />
-                                        ) : facePhotoName && data.face_embedding ? (
+                                        {isValidatingPhoto ? (
+                                            <Spinner className="h-4 w-4 text-[#1B1F5C]" />
+                                        ) : photoName ? (
                                             <CheckCircle2 className="h-4 w-4 text-green-600" />
                                         ) : (
                                             <Upload className="h-4 w-4 text-[#1B1F5C]" />
@@ -349,44 +346,30 @@ export default function Register({}: Props) {
                                     </div>
                                     <div className="min-w-0">
                                         <p className="text-sm font-medium text-gray-700 group-hover:text-[#1B1F5C]">
-                                            {isValidatingFace
-                                                ? 'Analyzing photo clarity & extracting keypoints...'
-                                                : facePhotoName || 'Upload reference face photo'}
+                                            {isValidatingPhoto
+                                                ? 'Analyzing face quality...'
+                                                : photoName || 'Upload Profile Picture'}
                                         </p>
-                                        <p className="mt-0.5 text-xs text-gray-400">JPG, JPEG, or PNG (Sharp & unblurred, Max 5MB)</p>
+                                        <p className="mt-0.5 text-xs text-gray-400">
+                                            Clear, well-lit headshot (JPG, JPEG, PNG)
+                                        </p>
                                     </div>
                                     <Input
-                                        id="face_photo"
+                                        id="profile_photo"
                                         type="file"
-                                        name="face_photo"
+                                        name="profile_photo"
                                         accept="image/jpeg,image/png,image/jpg"
                                         required
+                                        disabled={isValidatingPhoto}
                                         tabIndex={9}
-                                        disabled={isValidatingFace}
                                         className="hidden"
-                                        onChange={handleFacePhotoChange}
+                                        onChange={handleProfilePhotoChange}
                                     />
                                 </label>
-
-                                {/* INSTANT BLUR / FACE VALIDATION ERROR ALERT */}
-                                {faceValidationError && (
-                                    <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs font-medium text-red-600">
-                                        <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
-                                        <span>{faceValidationError}</span>
-                                    </div>
-                                )}
-
-                                {data.face_embedding && !faceValidationError && (
-                                    <p className="text-[11px] font-semibold text-emerald-600">
-                                        ✓ Facial keypoints successfully extracted for liveness matching!
-                                    </p>
-                                )}
-
-                                <InputError message={errors.face_photo} />
-                                <InputError message={errors.face_embedding} />
+                                <InputError message={errors.profile_photo} />
                             </div>
 
-                            {/* FORM 5 DOCUMENT */}
+                            {/* FORM 5 UPLOAD FIELD */}
                             <div className="grid gap-2">
                                 <Label htmlFor="form_5" className="text-xs font-semibold text-gray-700">
                                     Form 5 Document <span className="ml-1 text-[#F5A623]">*</span>
@@ -404,9 +387,9 @@ export default function Register({}: Props) {
                                     </div>
                                     <div className="min-w-0">
                                         <p className="text-sm font-medium text-gray-700 group-hover:text-[#1B1F5C]">
-                                            {form5Name || 'Upload Form 5'}
+                                            {form5Name || 'Upload Form 5 PDF'}
                                         </p>
-                                        <p className="mt-0.5 text-xs text-gray-400">PDF only (Max 10MB)</p>
+                                        <p className="mt-0.5 text-xs text-gray-400">PDF document only (Max 10MB)</p>
                                     </div>
                                     <Input
                                         id="form_5"
@@ -431,13 +414,12 @@ export default function Register({}: Props) {
                             {/* SUBMIT BUTTON */}
                             <Button
                                 type="submit"
-                                disabled={processing || isValidatingFace || !data.face_embedding}
+                                disabled={processing || isValidatingPhoto || !data.form_5 || !data.profile_photo}
                                 tabIndex={11}
-                                data-test="register-button"
                                 className="mt-3 w-full rounded-lg bg-[#1B1F5C] py-2.5 font-medium text-white shadow-md transition-all hover:border-b-2 hover:border-[#F5A623] hover:bg-[#131644] focus-visible:ring-2 focus-visible:ring-[#F5A623] focus-visible:ring-offset-2 disabled:opacity-50"
                             >
-                                {(processing || isValidatingFace) && <Spinner className="mr-2" />}
-                                Create Student Account & Verify
+                                {processing && <Spinner className="mr-2" />}
+                                Register & Verify Form 5 →
                             </Button>
 
                             {/* LOGIN LINK */}
@@ -451,16 +433,6 @@ export default function Register({}: Props) {
                                 </Link>
                             </div>
                         </form>
-
-                        {/* BACK HOME */}
-                        <div className="mt-6 text-center">
-                            <Link
-                                href="/"
-                                className="text-xs text-gray-400 transition-colors hover:text-[#1B1F5C]"
-                            >
-                                ← Back to Home
-                            </Link>
-                        </div>
                     </div>
                 </div>
             </div>

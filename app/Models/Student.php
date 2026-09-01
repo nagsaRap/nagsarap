@@ -5,17 +5,16 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Student extends Model
 {
     use HasFactory;
 
     protected $table = 'students';
-
     protected $primaryKey = 'student_id';
-
     public $incrementing = true;
-
     protected $keyType = 'int';
 
     protected $fillable = [
@@ -29,17 +28,13 @@ class Student extends Model
         'curricula_id',
         'entrance_status',
         'rfid',
-
-        // Form 5 Parsed Metadata Fields
         'degree',
         'year_section',
         'semester',
         'academic_year',
-
-        // OCR & Facial Liveness Verification Fields
         'form_5_path',
         'face_photo_path',
-        'face_embedding', // <--- Added for facial keypoint vectors
+        'face_embedding',
         'verification_status',
     ];
 
@@ -49,7 +44,7 @@ class Student extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'face_embedding' => 'array', // <--- Automatically converts JSON to PHP array and vice-versa
+        'face_embedding' => 'array', // Converts JSON 512-D vector to PHP array automatically
     ];
 
     /**
@@ -57,10 +52,24 @@ class Student extends Model
      */
     public function user(): HasOne
     {
-        return $this->hasOne(
-            User::class,
-            'student_id', // Foreign key on users table
-            'student_id'  // Local key on students table
-        );
+        return $this->hasOne(User::class, 'student_id', 'student_id');
+    }
+
+    /**
+     * Get all attendance logs for the student.
+     */
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(Attendance::class, 'student_id', 'student_id');
+    }
+
+    /**
+     * Get all events attended by the student.
+     */
+    public function events(): BelongsToMany
+    {
+        return $this->belongsToMany(Event::class, 'attendances', 'student_id', 'event_id')
+            ->withPivot('status', 'confidence_score', 'logged_at')
+            ->withTimestamps();
     }
 }

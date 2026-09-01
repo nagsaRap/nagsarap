@@ -2,49 +2,72 @@
 
 namespace App\Models;
 
-use Database\Factories\UserFactory;
-use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Laravel\Fortify\Contracts\PasskeyUser;
-use Laravel\Fortify\PasskeyAuthenticatable;
 
-#[Fillable([
-    'student_id',
-    'name',
-    'email',
-    'password',
-    'role',
-])]
-#[Hidden([
-    'password',
-    'remember_token',
-])]
-class User extends Authenticatable implements PasskeyUser
+class User extends Authenticatable
 {
-    use HasFactory, Notifiable, PasskeyAuthenticatable;
+    use HasFactory, Notifiable;
 
     /**
-     * Get the student record associated with the user account.
+     * The attributes that are mass assignable.
+     *
+     * @var array<int, string>
+     */
+    protected $fillable = [
+        'student_id',
+        'name',
+        'email',
+        'password',
+        'role',
+    ];
+
+    /**
+     * The attributes that should be hidden for serialization.
+     *
+     * @var array<int, string>
+     */
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+    ];
+
+    /**
+     * Get the student profile associated with the user account.
      */
     public function student(): BelongsTo
     {
-        return $this->belongsTo(
-            Student::class,
-            'student_id', // Foreign key on users table
-            'student_id'  // Primary key on students table
-        );
+        return $this->belongsTo(Student::class, 'student_id', 'student_id');
     }
 
-    protected function casts(): array
+    /**
+     * Role Check Helpers
+     */
+    public function isStudent(): bool
     {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-            'two_factor_confirmed_at' => 'datetime',
-        ];
+        return $this->role === 'student';
+    }
+
+    public function isOrganizer(): bool
+    {
+        return $this->role === 'organizer';
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin';
     }
 }

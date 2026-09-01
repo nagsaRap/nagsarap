@@ -1,260 +1,478 @@
 import { Head, router } from '@inertiajs/react';
-import { Button } from '@/components/ui/button';
-import { Camera, CheckCircle2, AlertCircle, RefreshCw, ShieldCheck } from 'lucide-react';
+import {
+    AlertCircle,
+    ArrowRightLeft,
+    CheckCircle2,
+    Eye,
+    RefreshCw,
+    Scan,
+    ShieldCheck,
+    Smile,
+    Sparkles,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 type StudentProps = {
     student_id: number;
     firstname: string;
     surname: string;
-    face_embedding: { x: number; y: number }[] | null;
 };
 
 type Props = {
     student: StudentProps;
 };
 
-// ============================================================================
-// HELPER: Symmetrical Interocular Scale Normalized Distance Calculation
-// ============================================================================
-function calculateFaceDistance(
-    refPoints: { x: number; y: number }[],
-    livePoints: { x: number; y: number }[]
-): number {
-    if (!refPoints || !livePoints || refPoints.length !== livePoints.length) {
-        return 999;
-    }
+type LivenessStep =
+    | 'DETECT'
+    | 'LOOK_CENTER'
+    | 'BLINK'
+    | 'HEAD_TURN'
+    | 'SMILE'
+    | 'VERIFYING'
+    | 'PASSED';
 
-    // MediaPipe 6-point layout: 0 = Right Eye, 1 = Left Eye
-    const normalizePoints = (points: { x: number; y: number }[]) => {
-        const rightEye = points[0];
-        const leftEye = points[1];
+const LEFT_EYE = [33, 160, 158, 133, 153, 144];
+const RIGHT_EYE = [362, 385, 387, 263, 373, 380];
 
-        // Compute Interocular Distance (IOD)
-        const iod = Math.hypot(leftEye.x - rightEye.x, leftEye.y - rightEye.y) || 1;
+const NOSE_TIP = 1;
+const LEFT_CHEEK = 234;
+const RIGHT_CHEEK = 454;
 
-        // Origin offset set to the midpoint between both eyes
-        const midX = (rightEye.x + leftEye.x) / 2;
-        const midY = (rightEye.y + leftEye.y) / 2;
+const UPPER_LIP = 13;
+const LOWER_LIP = 14;
+const MOUTH_LEFT = 78;
+const MOUTH_RIGHT = 308;
 
-        return points.map((p) => ({
-            x: (p.x - midX) / iod,
-            y: (p.y - midY) / iod,
-        }));
-    };
+function calculateEAR(landmarks: any[], indices: number[]): number {
+    const points = indices.map((index) => landmarks[index]);
+    if (points.some((point) => !point)) return 0;
 
-    const normRef = normalizePoints(refPoints);
-    const normLive = normalizePoints(livePoints);
+    const vertical1 = Math.hypot(points[1].x - points[5].x, points[1].y - points[5].y);
+    const vertical2 = Math.hypot(points[2].x - points[4].x, points[2].y - points[4].y);
+    const horizontal = Math.hypot(points[0].x - points[3].x, points[0].y - points[3].y);
 
-    // Compute Root Mean Square (RMS) Distance across points
-    let totalDist = 0;
-    for (let i = 0; i < normRef.length; i++) {
-        const dx = normRef[i].x - normLive[i].x;
-        const dy = normRef[i].y - normLive[i].y;
-        totalDist += Math.sqrt(dx * dx + dy * dy);
-    }
+    return horizontal === 0 ? 0 : (vertical1 + vertical2) / (2 * horizontal);
+}
 
-    return totalDist / normRef.length;
+function calculateYaw(landmarks: any[]): number {
+    const nose = landmarks[NOSE_TIP];
+    const left = landmarks[LEFT_CHEEK];
+    const right = landmarks[RIGHT_CHEEK];
+    if (!nose || !left || !right) return 0;
+
+    const distanceLeft = Math.abs(nose.x - left.x);
+    const distanceRight = Math.abs(nose.x - right.x);
+    const total = distanceLeft + distanceRight;
+
+    return total === 0 ? 0 : (distanceLeft - distanceRight) / total;
+}
+
+function calculateMAR(landmarks: any[]): number {
+    const top = landmarks[UPPER_LIP];
+    const bottom = landmarks[LOWER_LIP];
+    const left = landmarks[MOUTH_LEFT];
+    const right = landmarks[MOUTH_RIGHT];
+
+    if (!top || !bottom || !left || !right) return 0;
+
+    const vertical = Math.hypot(top.x - bottom.x, top.y - bottom.y);
+    const horizontal = Math.hypot(left.x - right.x, left.y - right.y);
+
+    return horizontal === 0 ? 0 : vertical / horizontal;
 }
 
 export default function VerifyFace({ student }: Props) {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const requestRef = useRef<number | null>(null);
+    const faceLandmarkerRef = useRef<any>(null);
 
     const [streamStarted, setStreamStarted] = useState(false);
     const [cameraError, setCameraError] = useState<string | null>(null);
-    const [matchStatus, setMatchStatus] = useState<'scanning' | 'matched' | 'failed'>('scanning');
-    const [matchScore, setMatchScore] = useState<number | null>(null);
+    const [currentStep, setCurrentStep] = useState<LivenessStep>('DETECT');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Initialize Webcam Feed
+    const isBlinkingRef = useRef(false);
+    const hasSubmittedRef = useRef(false);
+
+    // =========================================================================
+    // HELPER: EXPLICITLY SHUT DOWN WEBCAM HARDWARE AND TURN OFF LIGHT
+    // =========================================================================
+    const stopCameraStream = () => {
+        if (requestRef.current !== null) {
+            cancelAnimationFrame(requestRef.current);
+            requestRef.current = null;
+        }
+
+        if (videoRef.current?.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach((track) => track.stop());
+            videoRef.current.srcObject = null;
+        }
+
+        setStreamStarted(false);
+    };
+
+    // Helper: Restart camera if validation fails and user retries
+    const startCameraStream = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+                audio: false,
+            });
+
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                await videoRef.current.play().catch(() => {});
+                setStreamStarted(true);
+            }
+        } catch (error) {
+            console.error('Re-starting camera failed:', error);
+            setCameraError('Unable to access camera.');
+        }
+    };
+
+    // Initialise Camera and MediaPipe
     useEffect(() => {
-        async function startCamera() {
+        let isMounted = true;
+
+        async function initialize() {
             try {
+                if (!navigator.mediaDevices?.getUserMedia) {
+                    throw new Error('Camera access is not supported by this browser.');
+                }
+
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: 640, height: 480, facingMode: 'user' },
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
                     audio: false,
                 });
 
+                if (!isMounted) {
+                    stream.getTracks().forEach((track) => track.stop());
+                    return;
+                }
+
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
+                    await videoRef.current.play().catch(() => {});
                     setStreamStarted(true);
                 }
-            } catch (err) {
-                console.error('Webcam access error:', err);
-                setCameraError('Unable to access webcam. Please allow camera permissions in your browser.');
+
+                const { FaceLandmarker, FilesetResolver } = await import('@mediapipe/tasks-vision');
+                const vision = await FilesetResolver.forVisionTasks(
+                    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+                );
+
+                const landmarker = await FaceLandmarker.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+                        delegate: 'GPU',
+                    },
+                    runningMode: 'VIDEO',
+                    numFaces: 1,
+                    minFaceDetectionConfidence: 0.5,
+                    minFacePresenceConfidence: 0.5,
+                    minTrackingConfidence: 0.5,
+                });
+
+                if (isMounted) {
+                    faceLandmarkerRef.current = landmarker;
+                }
+            } catch (error) {
+                console.error('Face verification initialization error:', error);
+                if (isMounted) {
+                    setCameraError('Unable to initialize the camera or facial recognition system.');
+                }
             }
         }
 
-        startCamera();
+        initialize();
 
         return () => {
-            if (videoRef.current && videoRef.current.srcObject) {
-                const stream = videoRef.current.srcObject as MediaStream;
-                stream.getTracks().forEach((track) => track.stop());
+            isMounted = false;
+            stopCameraStream();
+
+            if (faceLandmarkerRef.current?.close) {
+                faceLandmarkerRef.current.close();
             }
         };
     }, []);
 
-    // Perform Facial Landmark Capture & Verification Scan
-    const handleScanAndVerify = async () => {
-        if (!videoRef.current || !student?.face_embedding) {
-            setCameraError('Missing reference facial keypoints. Please contact support.');
+    // Liveness Detection Loop
+    useEffect(() => {
+        if (!streamStarted || currentStep === 'VERIFYING' || currentStep === 'PASSED') return;
+
+        let stopped = false;
+
+        const detectFrame = () => {
+            if (stopped) return;
+
+            const video = videoRef.current;
+            const landmarker = faceLandmarkerRef.current;
+
+            if (!video || video.readyState < 2 || !landmarker) {
+                requestRef.current = requestAnimationFrame(detectFrame);
+                return;
+            }
+
+            try {
+                const results = landmarker.detectForVideo(video, performance.now());
+
+                if (!results.faceLandmarks || results.faceLandmarks.length === 0) {
+                    setCurrentStep('DETECT');
+                    isBlinkingRef.current = false;
+                    requestRef.current = requestAnimationFrame(detectFrame);
+                    return;
+                }
+
+                if (results.faceLandmarks.length > 1) {
+                    setCameraError('Only one face should be visible in the camera.');
+                    requestRef.current = requestAnimationFrame(detectFrame);
+                    return;
+                }
+
+                setCameraError(null);
+                const landmarks = results.faceLandmarks[0];
+
+                const leftEAR = calculateEAR(landmarks, LEFT_EYE);
+                const rightEAR = calculateEAR(landmarks, RIGHT_EYE);
+                const averageEAR = (leftEAR + rightEAR) / 2;
+                const yaw = calculateYaw(landmarks);
+                const mar = calculateMAR(landmarks);
+
+                if (!Number.isFinite(averageEAR) || averageEAR <= 0) {
+                    requestRef.current = requestAnimationFrame(detectFrame);
+                    return;
+                }
+
+                // Step 1: Detect
+                if (currentStep === 'DETECT') {
+                    setCurrentStep('LOOK_CENTER');
+                }
+                // Step 2: Look Center
+                else if (currentStep === 'LOOK_CENTER') {
+                    if (Math.abs(yaw) < 0.15 && averageEAR > 0.20) {
+                        setCurrentStep('BLINK');
+                    }
+                }
+                // Step 3: Blink
+                else if (currentStep === 'BLINK') {
+                    if (averageEAR < 0.18) {
+                        isBlinkingRef.current = true;
+                    } else if (isBlinkingRef.current && averageEAR >= 0.22) {
+                        isBlinkingRef.current = false;
+                        setCurrentStep('HEAD_TURN');
+                    }
+                }
+                // Step 4: Turn Head
+                else if (currentStep === 'HEAD_TURN') {
+                    if (Math.abs(yaw) > 0.30) {
+                        setCurrentStep('SMILE');
+                    }
+                }
+                // Step 5: Smile -> Trigger Auto Capture
+                else if (currentStep === 'SMILE') {
+                    if (mar > 0.35) {
+                        if (!hasSubmittedRef.current) {
+                            hasSubmittedRef.current = true;
+                            setCurrentStep('VERIFYING');
+                            handleCaptureAndVerify();
+                            return;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Face detection error:', error);
+            }
+
+            requestRef.current = requestAnimationFrame(detectFrame);
+        };
+
+        requestRef.current = requestAnimationFrame(detectFrame);
+
+        return () => {
+            stopped = true;
+            if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
+        };
+    }, [streamStarted, currentStep]);
+
+    // Send Live Snapshot Frame to Laravel & Shut Down Camera
+    const handleCaptureAndVerify = async () => {
+        if (!videoRef.current) {
+            hasSubmittedRef.current = false;
+            setCurrentStep('DETECT');
             return;
         }
 
-        const video = videoRef.current;
-        const { FaceDetector, FilesetResolver } = await import('@mediapipe/tasks-vision');
-        const vision = await FilesetResolver.forVisionTasks('/mediapipe');
-        
-        const detector = await FaceDetector.createFromOptions(vision, {
-            baseOptions: {
-                modelAssetPath: '/mediapipe/blaze_face_short_range.tflite',
-                delegate: 'GPU',
-            },
-            runningMode: 'IMAGE',
-            minDetectionConfidence: 0.65,
-        });
+        try {
+            const video = videoRef.current;
+            const canvas = canvasRef.current || document.createElement('canvas');
+            const width = video.videoWidth || 1280;
+            const height = video.videoHeight || 720;
 
-        // Capture current frame to hidden canvas
-        const canvas = canvasRef.current || document.createElement('canvas');
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+            canvas.width = width;
+            canvas.height = height;
 
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('Unable to create camera canvas.');
 
-        // Run MediaPipe Face Detection on video frame
-        const result = detector.detect(canvas);
+            // Mirror image orientation
+            context.save();
+            context.translate(width, 0);
+            context.scale(-1, 1);
+            context.drawImage(video, 0, 0, width, height);
+            context.restore();
 
-        if (!result.detections || result.detections.length === 0) {
-            setMatchStatus('failed');
-            setCameraError('No face detected in webcam view. Look directly into the camera.');
-            return;
-        }
+            const liveCameraBlob = await new Promise<Blob | null>((resolve) => {
+                canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.95);
+            });
 
-        if (result.detections.length > 1) {
-            setMatchStatus('failed');
-            setCameraError('Multiple faces detected in frame. Ensure you are alone in view.');
-            return;
-        }
+            if (!liveCameraBlob) throw new Error('Unable to capture camera image.');
 
-        const videoWidth = video.videoWidth || 640;
-        const videoHeight = video.videoHeight || 480;
+            // IMMEDIATELY CLOSE THE CAMERA HARDWARE TRACKS & TURN OFF INDICATOR LIGHT
+            stopCameraStream();
 
-        // FIX: Flip X coordinate back (1 - rawX) to match unmirrored registration photo
-        const liveKeypoints = result.detections[0].keypoints.map((kp: any) => {
-            const rawX = kp.x > 1 ? kp.x / videoWidth : kp.x;
-            const rawY = kp.y > 1 ? kp.y / videoHeight : kp.y;
+            const formData = new FormData();
+            formData.append('live_camera_frame', liveCameraBlob, 'live-camera.jpg');
+            formData.append('student_id', String(student.student_id));
 
-            return {
-                x: Number((1 - rawX).toFixed(4)),
-                y: Number(rawY.toFixed(4)),
-            };
-        });
-
-        // Compute Structural Distance
-        const distance = calculateFaceDistance(student.face_embedding, liveKeypoints);
-        
-        // Calibrated 0% - 100% Similarity Formula
-        const similarityPct = Math.max(0, Math.min(100, Math.round((1 - (distance * 1.8)) * 100)));
-        setMatchScore(similarityPct);
-
-        // Threshold adjusted to <= 0.22 for realistic webcam/photo matching
-        if (distance <= 0.22) {
-            setMatchStatus('matched');
-            setCameraError(null);
             setIsSubmitting(true);
 
-            setTimeout(() => {
-                router.post('/register/verify-face');
-            }, 1200);
-        } else {
-            setMatchStatus('failed');
-            setCameraError(`Face match failed (${similarityPct}% match). Face structure does not match the uploaded reference photo.`);
+            router.post('/register/verify-face', formData, {
+                forceFormData: true,
+                onSuccess: () => {
+                    setIsSubmitting(false);
+                    setCurrentStep('PASSED');
+                },
+                onError: (errors: Record<string, any>) => {
+                    console.error('Face verification errors:', errors);
+                    const message =
+                        errors.face ||
+                        errors.live_camera_frame ||
+                        errors.verification ||
+                        'Face verification failed. Please try again.';
+
+                    setCameraError(message);
+                    setIsSubmitting(false);
+                    hasSubmittedRef.current = false;
+                    setCurrentStep('DETECT');
+
+                    // Restart camera so user can retry liveness
+                    startCameraStream();
+                },
+                onFinish: () => {
+                    setIsSubmitting(false);
+                },
+            });
+        } catch (error) {
+            console.error('Camera capture error:', error);
+            setCameraError('Unable to capture the camera image. Please try again.');
+            setIsSubmitting(false);
+            hasSubmittedRef.current = false;
+            setCurrentStep('DETECT');
+
+            // Restart camera on error
+            startCameraStream();
         }
     };
 
+    const getStepInstruction = () => {
+        switch (currentStep) {
+            case 'DETECT':
+                return { text: '1. Position your face inside the circle', icon: Scan };
+            case 'LOOK_CENTER':
+                return { text: '2. Look directly at the camera', icon: Eye };
+            case 'BLINK':
+                return { text: '3. Blink BOTH eyes naturally', icon: Eye };
+            case 'HEAD_TURN':
+                return { text: '4. Turn your head LEFT or RIGHT', icon: ArrowRightLeft };
+            case 'SMILE':
+                return { text: '5. Smile or open your mouth slightly', icon: Smile };
+            case 'VERIFYING':
+                return { text: '6. Verifying biometrics with Python AI service...', icon: RefreshCw };
+            case 'PASSED':
+                return { text: '7. Verification successful! Redirecting...', icon: CheckCircle2 };
+        }
+    };
+
+    const { text: instructionText, icon: ActiveIcon } = getStepInstruction();
+
     return (
-        <div className="flex min-h-screen flex-col items-center justify-center bg-[#F5F6FA] p-4 font-sans text-black">
+        <div className="relative flex min-h-screen flex-col items-center justify-center bg-[#F5F6FA] p-4 font-sans text-black">
             <Head title="Live Face Verification" />
 
+            {/* PROCESSING OVERLAY */}
+            {isSubmitting && (
+                <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/75 text-white backdrop-blur-sm">
+                    <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-white/10 p-4">
+                        <Sparkles className="h-12 w-12 animate-pulse text-[#F5A623]" />
+                        <div className="absolute inset-0 animate-spin rounded-full border-4 border-transparent border-t-[#F5A623]" />
+                    </div>
+                    <h3 className="mt-4 text-lg font-bold">Registering Biometrics...</h3>
+                    <p className="mt-1 text-xs text-gray-300">Extracting InsightFace 512-D vector...</p>
+                </div>
+            )}
+
+            {/* MAIN CARD */}
             <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-6 shadow-xl">
-                {/* Header */}
-                <div className="mb-6 text-center">
-                    <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#1B1F5C]/10 text-[#1B1F5C]">
+                <div className="mb-4 text-center">
+                    <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-[#1B1F5C]/10 text-[#1B1F5C]">
                         <ShieldCheck className="h-6 w-6" />
                     </div>
-                    <h2 className="text-xl font-bold text-[#1B1F5C]">Step 2: Live Face Verification</h2>
+                    <h2 className="text-xl font-bold text-[#1B1F5C]">Biometric Registration</h2>
                     <p className="mt-1 text-xs text-gray-500">
-                        Hello <span className="font-semibold text-gray-800">{student.firstname}</span>, match your face with your reference photo to complete registration.
+                        Welcome <span className="font-semibold text-gray-800">{student.firstname}</span>, complete active liveness verification.
                     </p>
                 </div>
 
-                {/* Video Container */}
-                <div className="relative mx-auto h-64 w-64 overflow-hidden rounded-full border-4 border-[#1B1F5C] bg-black shadow-inner">
+                {/* CAMERA VIEWPORT */}
+                <div className="relative mx-auto h-56 w-56 overflow-hidden rounded-full border-4 border-[#1B1F5C] bg-black shadow-inner">
                     <video
                         ref={videoRef}
                         autoPlay
                         playsInline
                         muted
-                        className="h-full w-full object-cover -scale-x-100"
+                        className="h-full w-full scale-x-[-1] object-cover"
                     />
-
-                    {/* Circular Alignment Overlay */}
-                    <div className="pointer-events-none absolute inset-0 rounded-full border-2 border-dashed border-[#F5A623]/60" />
-
-                    {!streamStarted && !cameraError && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/80 text-white">
-                            <RefreshCw className="h-6 w-6 animate-spin text-[#F5A623]" />
-                            <p className="mt-2 text-xs">Initializing Camera...</p>
-                        </div>
-                    )}
+                    <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-full border border-white/20">
+                        <div
+                            className={`h-full w-full rounded-full border-2 border-dashed transition-colors duration-300 ${
+                                currentStep === 'PASSED'
+                                    ? 'border-emerald-500 bg-emerald-500/10'
+                                    : currentStep === 'VERIFYING'
+                                      ? 'animate-spin border-[#F5A623]'
+                                      : 'animate-pulse border-[#F5A623]'
+                            }`}
+                        />
+                    </div>
                 </div>
 
-                {/* Status Alert Messages */}
+                {/* STEP BADGE */}
+                <div
+                    className={`mt-6 flex items-center justify-center gap-2 rounded-lg border p-3 text-center text-xs font-semibold ${
+                        currentStep === 'PASSED'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : 'border-amber-200 bg-amber-50 text-amber-800'
+                    }`}
+                >
+                    <ActiveIcon className="h-4 w-4 shrink-0 animate-pulse" />
+                    <span>{instructionText}</span>
+                </div>
+
+                {/* ERROR BOX */}
                 {cameraError && (
                     <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-600">
                         <AlertCircle className="h-4 w-4 shrink-0" />
                         <span>{cameraError}</span>
                     </div>
                 )}
-
-                {matchStatus === 'matched' && (
-                    <div className="mt-4 flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                        <span>Identity Verified ({matchScore}% Match)! Redirecting...</span>
-                    </div>
-                )}
-
-                {/* Scan Button */}
-                <div className="mt-6 flex flex-col gap-3">
-                    <Button
-                        onClick={handleScanAndVerify}
-                        disabled={!streamStarted || isSubmitting || matchStatus === 'matched'}
-                        className="w-full rounded-lg bg-[#1B1F5C] py-2.5 font-medium text-white shadow-md hover:bg-[#131644]"
-                    >
-                        {isSubmitting ? (
-                            <span className="flex items-center gap-2">
-                                <RefreshCw className="h-4 w-4 animate-spin" />
-                                Completing Registration...
-                            </span>
-                        ) : (
-                            <span className="flex items-center justify-center gap-2">
-                                <Camera className="h-4 w-4 text-[#F5A623]" />
-                                Scan & Verify Face
-                            </span>
-                        )}
-                    </Button>
-                </div>
             </div>
-            
+
             <canvas ref={canvasRef} className="hidden" />
         </div>
     );
 }
 
 VerifyFace.layout = {
-    title: 'Live Face Verification',
+    title: 'Biometric Face Registration',
 };

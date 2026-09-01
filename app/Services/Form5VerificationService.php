@@ -23,7 +23,7 @@ class Form5VerificationService
             $pdfDocument = $parser->parseFile($pdfAbsolutePath);
             $extractedText = $pdfDocument->getText();
         } catch (Exception $e) {
-            Log::warning('Direct PDF parsing failed: ' . $e->getMessage());
+            Log::warning('Smalot PDF parsing failed: ' . $e->getMessage());
         }
 
         // 2. OCR Fallback for scanned documents
@@ -58,7 +58,7 @@ class Form5VerificationService
             }
         }
 
-        // 3. Evaluate identity matches
+        // 3. Evaluate identity matches (Student Number AND Name)
         $hasIdentityMatch = $this->evaluateMatches($extractedText, $expectedStudentNumber, $expectedFullName);
 
         // 4. Parse document metadata
@@ -85,10 +85,8 @@ class Form5VerificationService
         $extractedAY = $parsedData['academic_year'] ? $this->normalizeString($parsedData['academic_year']) : $normalizedRawText;
         $extractedSem = $parsedData['semester'] ? $this->normalizeString($parsedData['semester']) : $normalizedRawText;
 
-        // Check if expected Academic Year (e.g. "2026 2027") appears in extracted text
         $hasAYMatch = str_contains($extractedAY, $this->normalizeString($expectedAY));
 
-        // Check if any expected semester tokens (e.g. "FIRST", "1ST", "1") appear in extracted text
         $hasSemMatch = false;
         foreach ($expectedSemTokens as $token) {
             if (str_contains($extractedSem, $token)) {
@@ -108,17 +106,13 @@ class Form5VerificationService
         $month = (int) date('n');
         $year  = (int) date('Y');
 
-        // PH Academic Calendar Window Rules
         if ($month >= 8 && $month <= 12) {
-            // August - December: First Semester
             $academicYear = $year . '-' . ($year + 1);
             $semesterTokens = ['FIRST', '1ST', 'SEM 1', 'SEMESTER 1'];
         } elseif ($month >= 1 && $month <= 5) {
-            // January - May: Second Semester
             $academicYear = ($year - 1) . '-' . $year;
             $semesterTokens = ['SECOND', '2ND', 'SEM 2', 'SEMESTER 2'];
         } else {
-            // June - July: Midyear / Summer
             $academicYear = ($year - 1) . '-' . $year;
             $semesterTokens = ['MIDYEAR', 'SUMMER'];
         }
@@ -126,26 +120,42 @@ class Form5VerificationService
         return [$academicYear, $semesterTokens];
     }
 
+
     /**
      * Validate extracted text against input identity parameters.
+     * Requires ALL entered name parts (Firstname, Surname, and Middlename) to match strictly.
      */
     private function evaluateMatches(string $extractedText, string $expectedStudentNumber, string $expectedFullName): bool
     {
         $normalizedText = $this->normalizeString($extractedText);
         $normalizedStudentNum = $this->normalizeString($expectedStudentNumber);
 
+        // 1. Must match Student Number
         $hasNumberMatch = str_contains($normalizedText, $normalizedStudentNum);
 
-        $nameParts = array_filter(explode(' ', $this->normalizeString($expectedFullName)));
+        // 2. Tokenize user name inputs into distinct uppercase words
+        $nameParts = array_values(array_filter(explode(' ', $this->normalizeString($expectedFullName))));
+        
+        if (empty($nameParts)) {
+            return false;
+        }
+
+        // Tokenize document text into word array for exact word matching
+        $documentWords = array_values(array_filter(explode(' ', $normalizedText)));
+
         $matchedCount = 0;
 
         foreach ($nameParts as $part) {
-            if (strlen($part) > 1 && str_contains($normalizedText, $part)) {
+            // Exact word match inside document text stream
+            if (in_array($part, $documentWords, true)) {
                 $matchedCount++;
             }
         }
 
-        return $hasNumberMatch && (count($nameParts) > 0 && ($matchedCount >= min(2, count($nameParts))));
+        // STRICT CHECK: Every single entered name word MUST exist in the document
+        $hasAllNamesMatch = ($matchedCount === count($nameParts));
+
+        return $hasNumberMatch && $hasAllNamesMatch;
     }
 
     /**

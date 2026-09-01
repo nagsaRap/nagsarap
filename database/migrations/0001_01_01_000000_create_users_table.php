@@ -63,13 +63,15 @@ return new class extends Migration
 
             /*
             |--------------------------------------------------------------------------
-            | Foreign Key Constraints
+            | Foreign Key Constraints & Indexes
             |--------------------------------------------------------------------------
             */
             $table->foreign('student_id')
                 ->references('student_id')
                 ->on('students')
                 ->nullOnDelete();
+
+            $table->index('role');
         });
 
         /*

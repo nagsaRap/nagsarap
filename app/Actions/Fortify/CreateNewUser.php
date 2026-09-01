@@ -2,151 +2,145 @@
 
 namespace App\Actions\Fortify;
 
+use App\Concerns\PasswordValidationRules;
 use App\Models\Student;
 use App\Models\User;
 use App\Services\Form5VerificationService;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
-use Illuminate\Validation\Rules\Password;
 
 class CreateNewUser implements CreatesNewUsers
 {
-    public function __construct(
-        protected Form5VerificationService $form5Verifier
-    ) {}
+    use PasswordValidationRules;
+
+    protected Form5VerificationService $form5Service;
+
+    public function __construct(Form5VerificationService $form5Service)
+    {
+        $this->form5Service = $form5Service;
+    }
 
     /**
-     * Create a new user and student record following Form 5 verification.
+     * Validate and create a newly registered user with student profile & Form 5 verification.
+     *
+     * @param  array<string, mixed>  $input
      */
     public function create(array $input): User
     {
+        // 1. Validate Form Inputs, Profile Photo, and Form 5 File
         Validator::make($input, [
-            'student_number' => [
-                'required',
-                'string',
-                'max:15',
-                'unique:students,student_number',
-            ],
-            'surname'    => ['required', 'string', 'max:30'],
-            'firstname'  => ['required', 'string', 'max:30'],
-            'middlename' => ['nullable', 'string', 'max:30'],
-            'ext'        => ['nullable', 'string', 'max:10'],
-            'email'      => [
-                'required',
-                'string',
-                'email',
-                'max:100',
-                'unique:users,email',
-            ],
-            'password'   => [
-                'required',
-                'confirmed',
-                Password::min(8)
-                    ->letters()
-                    ->mixedCase()
-                    ->numbers(),
-            ],
-            // Face Photo Validation
-            'face_photo'     => ['required', 'image', 'mimes:jpeg,png,jpg', 'max:5120'], // Max 5MB
-            'face_embedding' => ['required', 'json'],                                     // Validated JSON keypoints array
-
-            // Form 5 Validation
-            'form_5'     => [
-                'required',
-                'file',
-                'max:10240', // Max 10MB
-                function ($attribute, $value, $fail) {
-                    if ($value && strtolower($value->getClientOriginalExtension()) !== 'pdf') {
-                        $fail('The ' . $attribute . ' field must be a file of type: pdf.');
-                    }
-                },
+            'student_number' => ['required', 'string', 'max:20', Rule::unique(Student::class, 'student_number')],
+            'surname'        => ['required', 'string', 'max:100'],
+            'firstname'      => ['required', 'string', 'max:100'],
+            'middlename'     => ['nullable', 'string', 'max:100'],
+            'ext'            => ['nullable', 'string', 'max:10'],
+            'email'          => ['required', 'string', 'email', 'max:255', Rule::unique(User::class, 'email')],
+            'password'       => $this->passwordRules(),
+            'profile_photo'  => ['required', 'image', 'mimes:jpeg,png,jpg', 'max:5048'],
+            'form_5'         => [
+                'required', 
+                'file', 
+                'max:10240',
+                'mimetypes:application/pdf,application/x-pdf,application/acrobat,applications/vnd.pdf,text/pdf,text/x-pdf,application/octet-stream'
             ],
         ])->validate();
 
-        // 1. Save uploaded files temporarily
-        $tempPdfPath = $input['form_5']->storeAs(
-            'temp',
-            uniqid('form5_') . '.pdf',
-            'local'
-        );
+        // 2. Save Files to Disk
+        $photoPath = $input['profile_photo']->store('profile_photos', 'public');
+        $pdfPath = $input['form_5']->store('form_5_documents', 'private');
+        $pdfAbsolutePath = Storage::disk('private')->path($pdfPath);
 
-        $facePhotoPath = $input['face_photo']->store('face_references', 'private');
+        // 3. Extract 512-D Embedding from Profile Photo via Python Microservice
+        $photoBase64 = base64_encode(file_get_contents($input['profile_photo']->getRealPath()));
+        $photoEmbedding = null;
 
-        // Resolve exact full path on disk
-        $fullPdfPath = Storage::disk('local')->path($tempPdfPath);
+        try {
+            $response = Http::timeout(10)->post('http://127.0.0.1:5000/extract-embedding', [
+                'image_base64' => $photoBase64,
+            ]);
 
-        // Include middlename and surname so all parts are sent to matching
+            if ($response->successful()) {
+                $photoEmbedding = $response->json()['embedding'];
+            } else {
+                Storage::disk('public')->delete($photoPath);
+                Storage::disk('private')->delete($pdfPath);
+
+                $detail = $response->json()['detail'] ?? 'No clear face detected in profile photo.';
+                throw ValidationException::withMessages([
+                    'profile_photo' => "Profile Photo Error: {$detail}",
+                ]);
+            }
+        } catch (\Exception $e) {
+            if ($e instanceof ValidationException) throw $e;
+
+            Storage::disk('public')->delete($photoPath);
+            Storage::disk('private')->delete($pdfPath);
+
+            throw ValidationException::withMessages([
+                'profile_photo' => 'Unable to connect to biometric service on port 5000.',
+            ]);
+        }
+
+        // 4. Form 5 Document Verification
         $fullNameParts = array_filter([
             $input['firstname'],
             $input['middlename'] ?? null,
             $input['surname'],
             $input['ext'] ?? null,
         ]);
-        $fullName = implode(' ', $fullNameParts);
+        $expectedFullName = implode(' ', $fullNameParts);
 
-        // 2. Perform Verification and Extract Metadata via Service
-        $verificationResult = $this->form5Verifier->verifyAndExtract(
-            $fullPdfPath,
+        $verificationResult = $this->form5Service->verifyAndExtract(
+            $pdfAbsolutePath,
             $input['student_number'],
-            $fullName
+            $expectedFullName
         );
 
-        // 3. Reject & Cleanup if Verification or Term Check Fails
         if (!$verificationResult['is_verified']) {
-            Storage::disk('local')->delete($tempPdfPath);
-            Storage::disk('private')->delete($facePhotoPath);
+            Storage::disk('public')->delete($photoPath);
+            Storage::disk('private')->delete($pdfPath);
 
-            // Explicit rejection message if the Form 5 is outdated
-            if (isset($verificationResult['is_latest_term']) && !$verificationResult['is_latest_term']) {
-                throw ValidationException::withMessages([
-                    'form_5' => 'Outdated Form 5 detected. Please upload your document for the current academic term.',
-                ]);
+            $errorMessage = 'Form 5 verification failed. Ensure the document contains your name and student number, and belongs to the current academic term.';
+            if (!$verificationResult['is_latest_term']) {
+                $errorMessage = 'The uploaded Form 5 is not valid for the current academic year/semester.';
             }
 
-            // Default rejection message for student ID or name mismatches
             throw ValidationException::withMessages([
-                'form_5' => 'Form 5 verification failed. Details on the document do not match your input.',
+                'form_5' => $errorMessage,
             ]);
         }
 
+        // 5. Create Student Record with Reference Vector Pre-Stored
         $extractedData = $verificationResult['data'];
 
-        // 4. Move Form 5 PDF to permanent secure storage upon success
-        $permanentForm5Path = 'form_5/' . basename($tempPdfPath);
-        Storage::disk('private')->move($tempPdfPath, $permanentForm5Path);
+        $student = Student::create([
+            'student_number'      => $input['student_number'],
+            'surname'             => $input['surname'],
+            'firstname'           => $input['firstname'],
+            'middlename'          => $input['middlename'] ?? null,
+            'ext'                 => $input['ext'] ?? null,
+            'email'               => $input['email'],
+            'face_photo_path'     => $photoPath,
+            'form_5_path'         => $pdfPath,
+            'face_embedding'      => $photoEmbedding, // Reference 512-D vector stored
+            'degree'              => $extractedData['degree'] ?? null,
+            'year_section'        => $extractedData['year_section'] ?? null,
+            'semester'            => $extractedData['semester'] ?? null,
+            'academic_year'       => $extractedData['academic_year'] ?? null,
+            'verification_status' => 'pending_face_verification',
+        ]);
 
-        // Decode JSON keypoints string into PHP array
-        $embeddingArray = json_decode($input['face_embedding'], true);
-
-        // 5. Save Records in Database Transaction
-        return DB::transaction(function () use ($input, $permanentForm5Path, $facePhotoPath, $extractedData, $embeddingArray) {
-            $student = Student::create([
-                'student_number'      => $input['student_number'],
-                'surname'             => $input['surname'],
-                'firstname'           => $input['firstname'],
-                'middlename'          => $input['middlename'] ?? null,
-                'ext'                 => $input['ext'] ?? null,
-                'email'               => $input['email'],
-                'degree'              => $extractedData['degree'] ?? null,
-                'year_section'        => $extractedData['year_section'] ?? null,
-                'semester'            => $extractedData['semester'] ?? null,
-                'academic_year'       => $extractedData['academic_year'] ?? null,
-                'form_5_path'         => $permanentForm5Path,
-                'face_photo_path'     => $facePhotoPath,
-                'face_embedding'      => $embeddingArray,              // Stores array (cast to JSON in Student model)
-                'verification_status' => 'pending_verification',     // Requires Step 2 live webcam check
-            ]);
-
-            return User::create([
-                'student_id' => $student->student_id,
-                'name'       => trim($student->firstname . ' ' . $student->surname),
-                'email'      => $student->email,
-                'password'   => $input['password'],
-                'role'       => 'student',
-            ]);
-        });
+        // 6. Create User Account
+        return User::create([
+            'name'       => "{$student->firstname} {$student->surname}",
+            'email'      => $input['email'],
+            'password'   => Hash::make($input['password']),
+            'student_id' => $student->student_id,
+        ]);
     }
 }

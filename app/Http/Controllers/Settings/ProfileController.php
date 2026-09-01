@@ -9,6 +9,7 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -19,9 +20,28 @@ class ProfileController extends Controller
      */
     public function edit(Request $request): Response
     {
+        $user = $request->user();
+
+        // Load student relationship if present
+        if (method_exists($user, 'student')) {
+            $user->load('student');
+        }
+
+        // Target the model holding the face_photo_path
+        $student = $user->student ?? $user;
+
+        // Append a fully resolved storage URL prop if the path exists
+        if (!empty($student->face_photo_path)) {
+            $path = str_replace('public/', '', $student->face_photo_path);
+            $student->face_photo_url = Storage::url($path);
+        } else {
+            $student->face_photo_url = null;
+        }
+
         return Inertia::render('settings/profile', [
-            'mustVerifyEmail' => $request->user() instanceof MustVerifyEmail,
+            'mustVerifyEmail' => $user instanceof MustVerifyEmail,
             'status' => $request->session()->get('status'),
+            'user' => $user,
         ]);
     }
 

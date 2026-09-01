@@ -1,7 +1,10 @@
 <?php
 
+use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\EventController;
+use App\Http\Controllers\FaceVerificationController;
+use App\Models\Event;
 use App\Models\Student;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
@@ -11,13 +14,15 @@ Route::inertia('/', 'welcome')->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     
-    // STEP 2: Live Face Verification Screen
+    // =========================================================================
+    // BIOMETRIC FACE VERIFICATION (STEP 2 OF REGISTRATION)
+    // =========================================================================
     Route::get('/register/verify-face', function () {
         /** @var \App\Models\User $user */
         $user = Auth::user();
         $student = $user->load('student')->student;
 
-        // If already verified, redirect straight to dashboard
+        // Skip straight to dashboard if already fully verified
         if ($student && $student->verification_status === 'verified') {
             return redirect()->route('dashboard');
         }
@@ -27,47 +32,52 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ]);
     })->name('register.verify-face');
 
-    // STEP 2 SUBMIT: Update verification status upon successful webcam match
-    Route::post('/register/verify-face', function (Request $request) {
+    Route::post('/register/verify-face', [FaceVerificationController::class, 'verifyFace'])
+        ->name('register.verify-face.submit');
+
+    // =========================================================================
+    // DASHBOARD & ATTENDANCE
+    // =========================================================================
+    Route::get('/dashboard', function () {
         /** @var \App\Models\User $user */
         $user = Auth::user();
-        $student = $user->student;
+        $student = $user->load(['student.attendances.event'])->student;
 
-        if ($student) {
-            $student->update([
-                'verification_status' => 'verified',
-            ]);
-        }
-
-        return redirect()->route('dashboard');
-    })->name('register.verify-face.submit');
-
-    // DASHBOARD ROUTE
-    Route::get('dashboard', function () {
-        /** @var \App\Models\User $user */
-        $user = Auth::user();
-        $student = $user->load('student')->student;
-
-        // Redirect unverified students back to the live webcam verification screen
-        if ($student && $student->verification_status === 'pending_verification') {
+        // Redirect unverified students back to live webcam verification
+        if ($student && $student->verification_status === 'pending_face_verification') {
             return redirect()->route('register.verify-face');
         }
 
-        // Add the face photo URL if a student record and photo path exist
         if ($student) {
             $student->face_photo_url = $student->face_photo_path 
                 ? route('student.face-photo', ['student' => $student->student_id])
                 : null;
         }
 
+        // Active events for webcam scanner dropdown
+        $activeEvents = Event::where('is_active', true)->get();
+
         return Inertia::render('dashboard', [
             'student' => $student,
+            'activeEvents' => $activeEvents,
         ]);
     })->name('dashboard');
 
-    // Secure route to serve the student's face photo from private storage
+    Route::post('/attendance/check-in', [AttendanceController::class, 'markAttendance'])
+        ->name('attendance.check-in');
+
+    // =========================================================================
+    // EVENT MANAGEMENT
+    // =========================================================================
+    Route::get('/events', [EventController::class, 'index'])->name('events.index');
+    Route::post('/events', [EventController::class, 'store'])->name('events.store');
+    Route::patch('/events/{event}/toggle', [EventController::class, 'toggleActive'])->name('events.toggle');
+
+    // =========================================================================
+    // SECURE PRIVATE STORAGE ACCESS
+    // =========================================================================
     Route::get('/student/{student}/face-photo', function (Student $student) {
-        if (!Storage::disk('private')->exists($student->face_photo_path)) {
+        if (!$student->face_photo_path || !Storage::disk('private')->exists($student->face_photo_path)) {
             abort(404);
         }
 
