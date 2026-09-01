@@ -51,7 +51,7 @@ class CreateNewUser implements CreatesNewUsers
         ])->validate();
 
         // 2. Save Files to Disk
-        $photoPath = $input['profile_photo']->store('profile_photos', 'public');
+        $photoPath = $input['profile_photo']->store('profile_photos', 'private');
         $pdfPath = $input['form_5']->store('form_5_documents', 'private');
         $pdfAbsolutePath = Storage::disk('private')->path($pdfPath);
 
@@ -102,7 +102,7 @@ class CreateNewUser implements CreatesNewUsers
         );
 
         if (!$verificationResult['is_verified']) {
-            Storage::disk('public')->delete($photoPath);
+            Storage::disk('private')->delete($photoPath);
             Storage::disk('private')->delete($pdfPath);
 
             $errorMessage = 'Form 5 verification failed. Ensure the document contains your name and student number, and belongs to the current academic term.';

@@ -9,7 +9,6 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -30,10 +29,11 @@ class ProfileController extends Controller
         // Target the model holding the face_photo_path
         $student = $user->student ?? $user;
 
-        // Append a fully resolved storage URL prop if the path exists
-        if (!empty($student->face_photo_path)) {
-            $path = str_replace('public/', '', $student->face_photo_path);
-            $student->face_photo_url = Storage::url($path);
+        // Generate the secure streaming route URL for private disk access
+        if (!empty($student->face_photo_path) && !empty($student->student_id)) {
+            $student->face_photo_url = route('student.face-photo', [
+                'student' => $student->student_id
+            ]);
         } else {
             $student->face_photo_url = null;
         }

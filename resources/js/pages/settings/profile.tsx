@@ -10,8 +10,10 @@ import { edit } from '@/routes/profile';
 import { send } from '@/routes/verification';
 import { ShieldCheck, ShieldAlert, User, GraduationCap, KeyRound } from 'lucide-react';
 import type { Auth } from '@/types';
+import { route } from 'ziggy-js';
 
 type StudentFillableData = {
+    student_id?: number;
     student_number?: string;
     firstname?: string;
     middlename?: string;
@@ -25,6 +27,7 @@ type StudentFillableData = {
     entrance_status?: string;
     verification_status?: string;
     face_photo_path?: string | null;
+    face_photo_url?: string | null;
 };
 
 type UserData = Auth['user'] & StudentFillableData & {
@@ -63,12 +66,12 @@ export default function Profile({
         .filter(Boolean)
         .join(' ') || currentUser.name || 'Student';
 
-    // Image URL resolution (supports full URLs or storage relative paths)
-    const photoUrl = student.face_photo_path
-        ? student.face_photo_path.startsWith('http')
-            ? student.face_photo_path
-            : `/storage/${student.face_photo_path}`
-        : null;
+    // Secure Image URL resolution targeting the private stream route
+    const photoUrl = student.face_photo_url
+        ? student.face_photo_url
+        : student.student_id
+            ? route('student.face-photo', { student: student.student_id })
+            : null;
 
     // Verification check based on verification_status column
     const isVerified =
@@ -92,13 +95,17 @@ export default function Profile({
                     </div>
 
                     <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
-                        {/* Facial Reference Photo */}
+                        {/* Facial Reference Photo (Streamed securely from private disk) */}
                         <div className="relative shrink-0">
                             {photoUrl ? (
                                 <img
                                     src={photoUrl}
                                     alt="Registered Face Reference"
                                     className="h-24 w-24 rounded-full object-cover border-2 border-primary shadow-sm"
+                                    onError={(e) => {
+                                        // Fallback if private stream fails
+                                        (e.target as HTMLImageElement).style.display = 'none';
+                                    }}
                                 />
                             ) : (
                                 <div className="flex h-24 w-24 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-2xl border-2 border-primary">

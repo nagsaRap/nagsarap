@@ -27,6 +27,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
             return redirect()->route('dashboard');
         }
 
+        if ($student) {
+            $student->face_photo_url = $student->face_photo_path 
+                ? route('student.face-photo', ['student' => $student->student_id])
+                : null;
+        }
+
         return Inertia::render('auth/verify-face', [
             'student' => $student,
         ]);
@@ -76,12 +82,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // =========================================================================
     // SECURE PRIVATE STORAGE ACCESS
     // =========================================================================
-    Route::get('/student/{student}/face-photo', function (Student $student) {
-        if (!$student->face_photo_path || !Storage::disk('private')->exists($student->face_photo_path)) {
+    // Explicitly binding {student:student_id} resolves Route Model Binding issues
+    Route::get('/student/{student:student_id}/face-photo', function (Student $student) {
+        if (!$student->face_photo_path) {
             abort(404);
         }
 
-        return Storage::disk('private')->response($student->face_photo_path);
+        // Clean path to ensure relative resolution against private disk
+        $relativePath = ltrim(str_replace(['/storage/', 'storage/'], '', $student->face_photo_path), '/');
+
+        if (!Storage::disk('private')->exists($relativePath)) {
+            abort(404);
+        }
+
+        return Storage::disk('private')->response($relativePath);
     })->name('student.face-photo');
 });
 

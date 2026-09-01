@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Student;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -26,7 +27,7 @@ class StudentRegistrationController extends Controller
      */
     public function verifyFace(Request $request)
     {
-        // 1. Validate request parameters sent by VerifyFace.tsx
+        // 1. Validate request parameters
         $request->validate([
             'student_id'        => 'required|exists:students,student_id',
             'live_camera_frame' => 'required',
@@ -34,22 +35,26 @@ class StudentRegistrationController extends Controller
 
         $student = Student::findOrFail($request->student_id);
 
-        // 2. Ensure the student record contains a saved photo path from initial registration
+        // 2. Ensure student record contains a saved photo path from initial registration
         if (!$student->face_photo_path) {
             throw ValidationException::withMessages([
-                'face' => 'No uploaded profile picture found for this student account.'
+                'face' => 'No uploaded profile picture found for this student account. Please re-register.'
             ]);
         }
 
-        // 3. Load saved profile photo directly from public storage disk & encode to Base64
-        $photoAbsolutePath = Storage::disk('public')->path($student->face_photo_path);
+        // 3. Resolve path on private/public disk cleanly
+        $relativePath = ltrim(str_replace(['/storage/', 'storage/'], '', $student->face_photo_path), '/');
 
-        if (!file_exists($photoAbsolutePath)) {
+        // Check disk availability (handles both private and public setups)
+        $disk = Storage::disk('private')->exists($relativePath) ? 'private' : 'public';
+
+        if (!Storage::disk($disk)->exists($relativePath)) {
             throw ValidationException::withMessages([
                 'face' => 'Registered profile picture file is missing on the server.'
             ]);
         }
 
+        $photoAbsolutePath = Storage::disk($disk)->path($relativePath);
         $photoBase64 = base64_encode(file_get_contents($photoAbsolutePath));
 
         // 4. Extract Base64 from the uploaded live webcam file or string payload
@@ -59,35 +64,49 @@ class StudentRegistrationController extends Controller
             $liveBase64 = preg_replace('#^data:image/\w+;base64,#i', '', $request->input('live_camera_frame'));
         }
 
-        // 5. Query Python microservice (Port 5000) for BOTH image vectors
+        // 5. Query Python microservice (Port 5000) concurrently for fast extraction
         try {
-            $photoResponse = Http::timeout(10)->post('http://127.0.0.1:5000/extract-embedding', [
-                'image_base64' => $photoBase64,
+            $responses = Http::pool(fn (Pool $pool) => [
+                $pool->as('photo')->timeout(10)->post('http://127.0.0.1:5000/extract-embedding', [
+                    'image_base64' => $photoBase64,
+                ]),
+                $pool->as('live')->timeout(10)->post('http://127.0.0.1:5000/extract-embedding', [
+                    'image_base64' => $liveBase64,
+                ]),
             ]);
 
-            $liveResponse = Http::timeout(10)->post('http://127.0.0.1:5000/extract-embedding', [
-                'image_base64' => $liveBase64,
-            ]);
+            $photoResponse = $responses['photo'];
+            $liveResponse = $responses['live'];
 
             if ($photoResponse->failed()) {
                 $detail = $photoResponse->json()['detail'] ?? 'Unable to detect a clear face in profile picture.';
-                throw ValidationException::withMessages(['face' => "Profile Photo: {$detail}"]);
+                throw ValidationException::withMessages([
+                    'face' => "Profile Photo Error: {$detail}"
+                ]);
             }
 
             if ($liveResponse->failed()) {
                 $detail = $liveResponse->json()['detail'] ?? 'Unable to detect a clear face in camera frame.';
-                throw ValidationException::withMessages(['face' => "Live Camera: {$detail}"]);
+                throw ValidationException::withMessages([
+                    'face' => "Live Camera Error: {$detail}"
+                ]);
             }
 
-            $photoEmbedding = $photoResponse->json()['embedding'];
-            $liveEmbedding = $liveResponse->json()['embedding'];
+            $photoEmbedding = $photoResponse->json()['embedding'] ?? null;
+            $liveEmbedding = $liveResponse->json()['embedding'] ?? null;
+
+            if (empty($photoEmbedding) || empty($liveEmbedding)) {
+                throw ValidationException::withMessages([
+                    'face' => 'Facial feature extraction incomplete. Ensure your face is fully lit and unobscured.'
+                ]);
+            }
 
         } catch (\Exception $e) {
             if ($e instanceof ValidationException) throw $e;
 
-            Log::error('Biometrics Service Error: ' . $e->getMessage());
+            Log::error('Biometrics Service Connection Failure: ' . $e->getMessage());
             throw ValidationException::withMessages([
-                'face' => 'Unable to reach Python biometric service on port 5000.'
+                'face' => 'Unable to connect to Python biometric service on port 5000. Ensure app.py is running.'
             ]);
         }
 

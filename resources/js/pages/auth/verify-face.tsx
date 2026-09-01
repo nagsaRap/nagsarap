@@ -6,6 +6,7 @@ import {
     Eye,
     RefreshCw,
     Scan,
+    ShieldAlert,
     ShieldCheck,
     Smile,
     Sparkles,
@@ -89,15 +90,14 @@ export default function VerifyFace({ student }: Props) {
 
     const [streamStarted, setStreamStarted] = useState(false);
     const [cameraError, setCameraError] = useState<string | null>(null);
+    const [modalError, setModalError] = useState<string | null>(null); // State for Pop-Up Error Modal
     const [currentStep, setCurrentStep] = useState<LivenessStep>('DETECT');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const isBlinkingRef = useRef(false);
     const hasSubmittedRef = useRef(false);
 
-    // =========================================================================
-    // HELPER: EXPLICITLY SHUT DOWN WEBCAM HARDWARE AND TURN OFF LIGHT
-    // =========================================================================
+    // Shut down webcam hardware and turn off indicator light
     const stopCameraStream = () => {
         if (requestRef.current !== null) {
             cancelAnimationFrame(requestRef.current);
@@ -113,7 +113,7 @@ export default function VerifyFace({ student }: Props) {
         setStreamStarted(false);
     };
 
-    // Helper: Restart camera if validation fails and user retries
+    // Restart camera if validation fails and user retries
     const startCameraStream = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -130,6 +130,16 @@ export default function VerifyFace({ student }: Props) {
             console.error('Re-starting camera failed:', error);
             setCameraError('Unable to access camera.');
         }
+    };
+
+    // Handle user closing error modal to retry verification
+    const handleCloseModalAndRetry = () => {
+        setModalError(null);
+        setCameraError(null);
+        setIsSubmitting(false);
+        hasSubmittedRef.current = false;
+        setCurrentStep('DETECT');
+        startCameraStream();
     };
 
     // Initialise Camera and MediaPipe
@@ -200,7 +210,7 @@ export default function VerifyFace({ student }: Props) {
 
     // Liveness Detection Loop
     useEffect(() => {
-        if (!streamStarted || currentStep === 'VERIFYING' || currentStep === 'PASSED') return;
+        if (!streamStarted || currentStep === 'VERIFYING' || currentStep === 'PASSED' || modalError !== null) return;
 
         let stopped = false;
 
@@ -294,7 +304,7 @@ export default function VerifyFace({ student }: Props) {
             stopped = true;
             if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
         };
-    }, [streamStarted, currentStep]);
+    }, [streamStarted, currentStep, modalError]);
 
     // Send Live Snapshot Frame to Laravel & Shut Down Camera
     const handleCaptureAndVerify = async () => {
@@ -329,7 +339,7 @@ export default function VerifyFace({ student }: Props) {
 
             if (!liveCameraBlob) throw new Error('Unable to capture camera image.');
 
-            // IMMEDIATELY CLOSE THE CAMERA HARDWARE TRACKS & TURN OFF INDICATOR LIGHT
+            // Close hardware track and turn off indicator light
             stopCameraStream();
 
             const formData = new FormData();
@@ -340,7 +350,23 @@ export default function VerifyFace({ student }: Props) {
 
             router.post('/register/verify-face', formData, {
                 forceFormData: true,
-                onSuccess: () => {
+                preserveState: true,
+                preserveScroll: true,
+                onSuccess: (page) => {
+                    const pageErrors = (page.props as any).errors || {};
+
+                    if (Object.keys(pageErrors).length > 0) {
+                        const errorMessage =
+                            pageErrors.face ||
+                            pageErrors.live_camera_frame ||
+                            Object.values(pageErrors)[0] ||
+                            'Face mismatch detected! The face in front of the camera does not match your profile photo.';
+
+                        setIsSubmitting(false);
+                        setModalError(errorMessage as string);
+                        return;
+                    }
+
                     setIsSubmitting(false);
                     setCurrentStep('PASSED');
                 },
@@ -350,15 +376,11 @@ export default function VerifyFace({ student }: Props) {
                         errors.face ||
                         errors.live_camera_frame ||
                         errors.verification ||
-                        'Face verification failed. Please try again.';
+                        Object.values(errors)[0] ||
+                        'Face mismatch detected! The face in front of the camera does not match your profile photo.';
 
-                    setCameraError(message);
                     setIsSubmitting(false);
-                    hasSubmittedRef.current = false;
-                    setCurrentStep('DETECT');
-
-                    // Restart camera so user can retry liveness
-                    startCameraStream();
+                    setModalError(message);
                 },
                 onFinish: () => {
                     setIsSubmitting(false);
@@ -366,13 +388,8 @@ export default function VerifyFace({ student }: Props) {
             });
         } catch (error) {
             console.error('Camera capture error:', error);
-            setCameraError('Unable to capture the camera image. Please try again.');
             setIsSubmitting(false);
-            hasSubmittedRef.current = false;
-            setCurrentStep('DETECT');
-
-            // Restart camera on error
-            startCameraStream();
+            setModalError('Unable to capture camera image properly. Please try again.');
         }
     };
 
@@ -410,6 +427,30 @@ export default function VerifyFace({ student }: Props) {
                     </div>
                     <h3 className="mt-4 text-lg font-bold">Registering Biometrics...</h3>
                     <p className="mt-1 text-xs text-gray-300">Extracting InsightFace 512-D vector...</p>
+                </div>
+            )}
+
+            {/* ERROR POP-UP MODAL */}
+            {modalError && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="w-full max-w-sm rounded-2xl border border-red-100 bg-white p-6 shadow-2xl text-center">
+                        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-red-600">
+                            <ShieldAlert className="h-8 w-8 animate-bounce" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-900">Verification Failed</h3>
+                        <p className="mt-2 text-xs leading-relaxed text-gray-600 font-medium">
+                            {modalError}
+                        </p>
+                        <div className="mt-6">
+                            <button
+                                type="button"
+                                onClick={handleCloseModalAndRetry}
+                                className="w-full rounded-xl bg-[#1B1F5C] px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:bg-[#131644] active:scale-95"
+                            >
+                                Try Again
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -459,8 +500,8 @@ export default function VerifyFace({ student }: Props) {
                     <span>{instructionText}</span>
                 </div>
 
-                {/* ERROR BOX */}
-                {cameraError && (
+                {/* HARDWARE/SYSTEM ERROR BOX */}
+                {cameraError && !modalError && (
                     <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-600">
                         <AlertCircle className="h-4 w-4 shrink-0" />
                         <span>{cameraError}</span>
