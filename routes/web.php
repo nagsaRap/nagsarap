@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\EventController;
 use App\Http\Controllers\FaceVerificationController;
@@ -13,7 +14,51 @@ use Inertia\Inertia;
 Route::inertia('/', 'welcome')->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    
+
+    // Redirect admins attempting to hit the default /dashboard route
+    Route::get('/dashboard', function () {
+        /** @var \App\Models\User $user */
+        $user = Auth::user();
+
+        // Redirect admin users directly to their dedicated dashboard
+        if ($user->role === 'admin') {
+            return redirect()->route('admin.dashboard');
+        }
+
+        $student = $user->load(['student.attendances.event'])->student;
+
+        // Redirect unverified students back to live webcam verification
+        if ($student && $student->verification_status === 'pending_face_verification') {
+            return redirect()->route('register.verify-face');
+        }
+
+        if ($student) {
+            $student->face_photo_url = $student->face_photo_path 
+                ? route('student.face-photo', ['student' => $student->student_id])
+                : null;
+        }
+
+        // Active events for webcam scanner dropdown
+        $activeEvents = Event::where('is_active', true)->get();
+
+        return Inertia::render('dashboard', [
+            'student' => $student,
+            'activeEvents' => $activeEvents,
+        ]);
+    })->name('dashboard');
+
+    // =========================================================================
+    // ADMIN ROUTES (Protected by 'admin' Middleware)
+    // =========================================================================
+    Route::middleware(['admin'])->prefix('admin')->as('admin.')->group(function () {
+        Route::get('/dashboard', function () {
+            return Inertia::render('admin/admindashboard', [
+                'totalStudents' => Student::count(),
+                'activeEvents' => Event::where('is_active', true)->count(),
+            ]);
+        })->name('dashboard');
+    });
+
     // =========================================================================
     // BIOMETRIC FACE VERIFICATION (STEP 2 OF REGISTRATION)
     // =========================================================================
@@ -41,34 +86,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/register/verify-face', [FaceVerificationController::class, 'verifyFace'])
         ->name('register.verify-face.submit');
 
-    // =========================================================================
-    // DASHBOARD & ATTENDANCE
-    // =========================================================================
-    Route::get('/dashboard', function () {
-        /** @var \App\Models\User $user */
-        $user = Auth::user();
-        $student = $user->load(['student.attendances.event'])->student;
-
-        // Redirect unverified students back to live webcam verification
-        if ($student && $student->verification_status === 'pending_face_verification') {
-            return redirect()->route('register.verify-face');
-        }
-
-        if ($student) {
-            $student->face_photo_url = $student->face_photo_path 
-                ? route('student.face-photo', ['student' => $student->student_id])
-                : null;
-        }
-
-        // Active events for webcam scanner dropdown
-        $activeEvents = Event::where('is_active', true)->get();
-
-        return Inertia::render('dashboard', [
-            'student' => $student,
-            'activeEvents' => $activeEvents,
-        ]);
-    })->name('dashboard');
-
     Route::post('/attendance/check-in', [AttendanceController::class, 'markAttendance'])
         ->name('attendance.check-in');
 
@@ -82,13 +99,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // =========================================================================
     // SECURE PRIVATE STORAGE ACCESS
     // =========================================================================
-    // Explicitly binding {student:student_id} resolves Route Model Binding issues
     Route::get('/student/{student:student_id}/face-photo', function (Student $student) {
         if (!$student->face_photo_path) {
             abort(404);
         }
 
-        // Clean path to ensure relative resolution against private disk
         $relativePath = ltrim(str_replace(['/storage/', 'storage/'], '', $student->face_photo_path), '/');
 
         if (!Storage::disk('private')->exists($relativePath)) {
