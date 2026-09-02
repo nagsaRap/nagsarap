@@ -3,21 +3,20 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    use HasApiTokens;
-    use HasFactory;
-    use Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
 
     protected $fillable = [
+        'student_id',
         'name',
         'email',
         'password',
-        'student_id',
         'role',
     ];
 
@@ -26,21 +25,14 @@ class User extends Authenticatable
         'remember_token',
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-        ];
-    }
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+    ];
 
-    public function student()
+    public function student(): BelongsTo
     {
-        return $this->belongsTo(
-            Student::class,
-            'student_id',
-            'student_id'
-        );
+        return $this->belongsTo(Student::class, 'student_id', 'student_id');
     }
 
     public function isStudent(): bool
@@ -48,13 +40,13 @@ class User extends Authenticatable
         return $this->role === 'student';
     }
 
-    public function isAdmin(): bool
-    {
-        return $this->role === 'admin';
-    }
-
     public function isOrganizer(): bool
     {
         return $this->role === 'organizer';
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin';
     }
 }

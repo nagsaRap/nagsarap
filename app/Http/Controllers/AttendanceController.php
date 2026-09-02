@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Attendance;
 use App\Models\Event;
 use App\Services\AttendanceException;
 use App\Services\AttendanceService;
