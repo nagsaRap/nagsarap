@@ -2,19 +2,18 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Student extends Model
 {
-    use HasFactory;
-
     protected $table = 'students';
+
     protected $primaryKey = 'student_id';
+
     public $incrementing = true;
+
     protected $keyType = 'int';
 
     protected $fillable = [
@@ -28,48 +27,55 @@ class Student extends Model
         'curricula_id',
         'entrance_status',
         'rfid',
-        'degree',
-        'year_section',
-        'semester',
-        'academic_year',
-        'form_5_path',
+
+        'verification_status',
         'face_photo_path',
         'face_embedding',
-        'verification_status',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @var array<string, string>
-     */
+    protected $hidden = [
+    'face_embedding',
+    'face_photo_path',
+];
+
     protected $casts = [
-        'face_embedding' => 'array', // Converts JSON 512-D vector to PHP array automatically
+        'student_id' => 'integer',
+        'degree_id' => 'integer',
+        'curricula_id' => 'integer',
+        'entrance_status' => 'integer',
+
+        /*
+         * If face_embedding is stored as JSON
+         * in your database, Laravel will
+         * automatically convert it to array.
+         */
+        'face_embedding' => 'array',
     ];
 
     /**
-     * Get the user account associated with the student profile.
+     * Student's user/login account.
+     *
+     * This assumes users.student_id points to
+     * students.student_id.
      */
-    public function user(): HasOne
+    public function user(): BelongsTo
     {
-        return $this->hasOne(User::class, 'student_id', 'student_id');
+        return $this->belongsTo(
+            User::class,
+            'student_id',
+            'student_id'
+        );
     }
 
     /**
-     * Get all attendance logs for the student.
+     * Attendance records belonging to student.
      */
     public function attendances(): HasMany
     {
-        return $this->hasMany(Attendance::class, 'student_id', 'student_id');
-    }
-
-    /**
-     * Get all events attended by the student.
-     */
-    public function events(): BelongsToMany
-    {
-        return $this->belongsToMany(Event::class, 'attendances', 'student_id', 'event_id')
-            ->withPivot('status', 'confidence_score', 'logged_at')
-            ->withTimestamps();
+        return $this->hasMany(
+            Attendance::class,
+            'student_id',
+            'student_id'
+        );
     }
 }

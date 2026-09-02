@@ -345,6 +345,7 @@ export default function VerifyFace({ student }: Props) {
             const formData = new FormData();
             formData.append('live_camera_frame', liveCameraBlob, 'live-camera.jpg');
             formData.append('student_id', String(student.student_id));
+            formData.append('liveness_passed', '1');
 
             setIsSubmitting(true);
 

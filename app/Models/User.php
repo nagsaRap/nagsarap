@@ -2,72 +2,59 @@
 
 namespace App\Models;
 
-use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable;
+    use HasApiTokens;
+    use HasFactory;
+    use Notifiable;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
-        'student_id',
         'name',
         'email',
         'password',
+        'student_id',
         'role',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var array<int, string>
-     */
     protected $hidden = [
         'password',
         'remember_token',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @var array<string, string>
-     */
-    protected $casts = [
-        'email_verified_at' => 'datetime',
-        'password' => 'hashed',
-    ];
-
-    /**
-     * Get the student profile associated with the user account.
-     */
-    public function student(): BelongsTo
+    protected function casts(): array
     {
-        return $this->belongsTo(Student::class, 'student_id', 'student_id');
+        return [
+            'email_verified_at' => 'datetime',
+            'password' => 'hashed',
+        ];
     }
 
-    /**
-     * Role Check Helpers
-     */
+    public function student()
+    {
+        return $this->belongsTo(
+            Student::class,
+            'student_id',
+            'student_id'
+        );
+    }
+
     public function isStudent(): bool
     {
         return $this->role === 'student';
     }
 
-    public function isOrganizer(): bool
-    {
-        return $this->role === 'organizer';
-    }
-
     public function isAdmin(): bool
     {
         return $this->role === 'admin';
+    }
+
+    public function isOrganizer(): bool
+    {
+        return $this->role === 'organizer';
     }
 }

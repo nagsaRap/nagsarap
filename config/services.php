@@ -1,19 +1,6 @@
 <?php
 
 return [
-
-    /*
-    |--------------------------------------------------------------------------
-    | Third Party Services
-    |--------------------------------------------------------------------------
-    |
-    | This file is for storing the credentials for third party services such
-    | as Resend, Postmark, AWS, and more. This file provides the de facto
-    | location for this type of information, allowing packages to have
-    | a conventional file to locate the various service credentials.
-    |
-    */
-
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],
@@ -35,4 +22,13 @@ return [
         ],
     ],
 
+    'face' => [
+        'url' => env('FACE_SERVICE_URL', 'http://127.0.0.1:5000'),
+        'match_threshold' => (float) env('FACE_MATCH_THRESHOLD', 0.60),
+        'enrollment_threshold' => (float) env('FACE_ENROLLMENT_THRESHOLD', 0.50),
+    ],
+
+    'geofence' => [
+        'max_accuracy_meters' => (float) env('MAX_GPS_ACCURACY_METERS', 100),
+    ],
 ];

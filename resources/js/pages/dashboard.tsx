@@ -20,19 +20,15 @@ type Event = {
     event_id: number;
     title: string;
     description?: string | null;
-
     event_date: string;
     start_time: string;
     end_time?: string | null;
-
     location?: string | null;
-    
     latitude?: number | null;
     longitude?: number | null;
-
     geofence_radius?: number | null;
     geofence_enabled?: boolean;
-
+    late_after_minutes?: number;
     is_active?: boolean;
 };
 
@@ -109,7 +105,7 @@ export default function Dashboard({
             <Head title="Student Dashboard" />
 
             <div className="w-full min-h-screen bg-gray-50 dark:bg-[#030712] text-gray-900 dark:text-white p-6 space-y-6 transition-colors duration-200">
-                
+
                 {/* WELCOME HEADER */}
                 <div className="flex w-full items-center justify-between rounded-xl bg-white dark:bg-[#090d16] p-6 shadow-sm border border-gray-100 dark:border-slate-800/60">
                     <div>
@@ -317,673 +313,211 @@ function ConfidenceBadge({ score }: { score: number }) {
     );
 }
 
-function CheckInModal({
-    event,
-    onClose,
-}: {
-    event: Event;
-    onClose: () => void;
-}) {
+function CheckInModal({ event, onClose }: { event: Event; onClose: () => void }) {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const requestRef = useRef<number | null>(null);
+    const faceLandmarkerRef = useRef<any>(null);
 
     const [streamStarted, setStreamStarted] = useState(false);
     const [cameraError, setCameraError] = useState<string | null>(null);
     const [isScanning, setIsScanning] = useState(false);
+    const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [locationStatus, setLocationStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+    const [locationError, setLocationError] = useState<string | null>(null);
+    const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number; accuracy: number } | null>(null);
 
-    const [feedbackMessage, setFeedbackMessage] = useState<{
-        type: 'success' | 'error';
-        text: string;
-    } | null>(null);
-
-    // =========================================================
-    // GEOFENCE / LOCATION STATES
-    // =========================================================
-
-    const [locationStatus, setLocationStatus] = useState<
-        'idle' | 'loading' | 'ready' | 'error'
-    >('idle');
-
-    const [locationError, setLocationError] =
-        useState<string | null>(null);
-
-    const [userLocation, setUserLocation] = useState<{
-        latitude: number;
-        longitude: number;
-        accuracy: number;
-    } | null>(null);
-
-    // =========================================================
-    // GET CURRENT LOCATION
-    // =========================================================
+    type LivenessStep = 'DETECT' | 'CENTER' | 'BLINK' | 'TURN' | 'SMILE' | 'PASSED';
+    const [livenessStep, setLivenessStep] = useState<LivenessStep>('DETECT');
+    const blinkStartedRef = useRef(false);
 
     const requestLocation = () => {
         if (!navigator.geolocation) {
             setLocationStatus('error');
-            setLocationError(
-                'Geolocation is not supported by this browser.'
-            );
+            setLocationError('Geolocation is not supported by this browser.');
             return;
         }
-
         setLocationStatus('loading');
-        setLocationError(null);
-
         navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const location = {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                    accuracy: position.coords.accuracy,
-                };
-
-                setUserLocation(location);
+            p => {
+                setUserLocation({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy });
                 setLocationStatus('ready');
-
-                console.log('Location acquired:', location);
+                setLocationError(null);
             },
-
-            (error) => {
+            e => {
                 setLocationStatus('error');
-
-                switch (error.code) {
-                    case error.PERMISSION_DENIED:
-                        setLocationError(
-                            'Location permission was denied. Please allow location access.'
-                        );
-                        break;
-
-                    case error.POSITION_UNAVAILABLE:
-                        setLocationError(
-                            'Your current location is unavailable.'
-                        );
-                        break;
-
-                    case error.TIMEOUT:
-                        setLocationError(
-                            'Location request timed out. Please try again.'
-                        );
-                        break;
-
-                    default:
-                        setLocationError(
-                            'Unable to determine your location.'
-                        );
-                }
+                setLocationError(e.code === e.PERMISSION_DENIED ? 'Location permission was denied.' : 'Unable to determine your location.');
             },
-
-            {
-                enableHighAccuracy: true,
-                timeout: 15000,
-                maximumAge: 0,
-            }
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
         );
     };
 
-    // =========================================================
-    // START CAMERA + LOCATION WHEN MODAL OPENS
-    // =========================================================
-
     useEffect(() => {
-        let isMounted = true;
+        let mounted = true;
         let activeStream: MediaStream | null = null;
 
-        async function startCamera() {
+        async function initialize() {
             try {
-                const stream =
-                    await navigator.mediaDevices.getUserMedia({
-                        video: {
-                            width: 640,
-                            height: 480,
-                            facingMode: 'user',
-                        },
-                        audio: false,
-                    });
-
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+                    audio: false,
+                });
                 activeStream = stream;
-
-                if (videoRef.current && isMounted) {
+                if (videoRef.current && mounted) {
                     videoRef.current.srcObject = stream;
+                    await videoRef.current.play().catch(() => {});
                     setStreamStarted(true);
                 }
-            } catch (err) {
-                if (isMounted) {
-                    setCameraError(
-                        'Camera access was denied or is unavailable.'
-                    );
-                }
+
+                const { FaceLandmarker, FilesetResolver } = await import('@mediapipe/tasks-vision');
+                const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
+                faceLandmarkerRef.current = await FaceLandmarker.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+                        delegate: 'GPU',
+                    },
+                    runningMode: 'VIDEO',
+                    numFaces: 1,
+                    minFaceDetectionConfidence: 0.5,
+                    minFacePresenceConfidence: 0.5,
+                    minTrackingConfidence: 0.5,
+                });
+            } catch (e) {
+                if (mounted) setCameraError('Unable to initialize camera or MediaPipe.');
             }
         }
 
-        startCamera();
-
-        // Get GPS immediately when modal opens
+        initialize();
         requestLocation();
 
         return () => {
-            isMounted = false;
-
-            activeStream
-                ?.getTracks()
-                .forEach((track) => track.stop());
+            mounted = false;
+            activeStream?.getTracks().forEach(track => track.stop());
+            if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
+            faceLandmarkerRef.current?.close?.();
         };
     }, []);
 
-    // =========================================================
-    // SCAN ATTENDANCE
-    // =========================================================
+    useEffect(() => {
+        if (!streamStarted || livenessStep === 'PASSED') return;
+        let stopped = false;
 
-    const handleScanAttendance = async () => {
-        if (!videoRef.current) {
-            return;
-        }
+        const eye = (lm: any[], ids: number[]) => {
+            const p = ids.map(i => lm[i]);
+            if (p.some(x => !x)) return 0;
+            const v1 = Math.hypot(p[1].x-p[5].x, p[1].y-p[5].y);
+            const v2 = Math.hypot(p[2].x-p[4].x, p[2].y-p[4].y);
+            const h = Math.hypot(p[0].x-p[3].x, p[0].y-p[3].y);
+            return h === 0 ? 0 : (v1+v2)/(2*h);
+        };
+        const loop = () => {
+            if (stopped) return;
+            const video = videoRef.current;
+            const landmarker = faceLandmarkerRef.current;
+            if (!video || video.readyState < 2 || !landmarker) {
+                requestRef.current = requestAnimationFrame(loop); return;
+            }
+            try {
+                const results = landmarker.detectForVideo(video, performance.now());
+                const lm = results.faceLandmarks?.[0];
+                if (!lm) { setLivenessStep('DETECT'); blinkStartedRef.current = false; requestRef.current = requestAnimationFrame(loop); return; }
+                const ear = (eye(lm,[33,160,158,133,153,144]) + eye(lm,[362,385,387,263,373,380]))/2;
+                const nose=lm[1], left=lm[234], right=lm[454];
+                const dl=Math.abs(nose.x-left.x), dr=Math.abs(nose.x-right.x);
+                const yaw=(dl+dr)===0?0:(dl-dr)/(dl+dr);
+                const top=lm[13], bottom=lm[14], ml=lm[78], mr=lm[308];
+                const mar=Math.hypot(top.x-bottom.x,top.y-bottom.y)/Math.max(0.0001,Math.hypot(ml.x-mr.x,ml.y-mr.y));
 
-        // =====================================================
-        // LOCATION REQUIRED
-        // =====================================================
-
-        if (!userLocation) {
-            setFeedbackMessage({
-                type: 'error',
-                text: 'Your current location is required before recording attendance.',
-            });
-
-            requestLocation();
-
-            return;
-        }
-
-        // Optional browser-side accuracy check.
-        // Laravel still performs the final authoritative check.
-        if (userLocation.accuracy > 100) {
-            setFeedbackMessage({
-                type: 'error',
-                text:
-                    `GPS accuracy is currently ±${Math.round(
-                        userLocation.accuracy
-                    )} meters. Please wait for a more accurate location and try again.`,
-            });
-
-            requestLocation();
-
-            return;
-        }
-
-        setIsScanning(true);
-        setFeedbackMessage(null);
-
-        const video = videoRef.current;
-        const canvas =
-            canvasRef.current ||
-            document.createElement('canvas');
-
-        canvas.width =
-            video.videoWidth || 640;
-
-        canvas.height =
-            video.videoHeight || 480;
-
-        const ctx =
-            canvas.getContext('2d');
-
-        if (!ctx) {
-            setIsScanning(false);
-
-            setFeedbackMessage({
-                type: 'error',
-                text: 'Unable to access camera canvas.',
-            });
-
-            return;
-        }
-
-        // Mirror front camera
-        ctx.save();
-
-        ctx.translate(
-            canvas.width,
-            0
-        );
-
-        ctx.scale(
-            -1,
-            1
-        );
-
-        ctx.drawImage(
-            video,
-            0,
-            0,
-            canvas.width,
-            canvas.height
-        );
-
-        ctx.restore();
-
-        canvas.toBlob(
-            (blob) => {
-                if (!blob) {
-                    setFeedbackMessage({
-                        type: 'error',
-                        text: 'Failed to capture frame from webcam.',
-                    });
-
-                    setIsScanning(false);
-
-                    return;
+                if (livenessStep === 'DETECT') setLivenessStep('CENTER');
+                else if (livenessStep === 'CENTER' && Math.abs(yaw) < 0.15 && ear > 0.20) setLivenessStep('BLINK');
+                else if (livenessStep === 'BLINK') {
+                    if (ear < 0.18) blinkStartedRef.current = true;
+                    else if (blinkStartedRef.current && ear >= 0.22) { blinkStartedRef.current=false; setLivenessStep('TURN'); }
                 }
+                else if (livenessStep === 'TURN' && Math.abs(yaw) > 0.30) setLivenessStep('SMILE');
+                else if (livenessStep === 'SMILE' && mar > 0.35) setLivenessStep('PASSED');
+            } catch (e) { console.error(e); }
+            requestRef.current = requestAnimationFrame(loop);
+        };
+        requestRef.current = requestAnimationFrame(loop);
+        return () => { stopped = true; if (requestRef.current !== null) cancelAnimationFrame(requestRef.current); };
+    }, [streamStarted, livenessStep]);
 
-                // =================================================
-                // BUILD FORM DATA
-                // =================================================
-
-                const formData =
-                    new FormData();
-
-                formData.append(
-                    'event_id',
-                    String(event.event_id)
-                );
-
-                formData.append(
-                    'live_camera_frame',
-                    blob,
-                    'attendance-scan.jpg'
-                );
-
-                // GPS data
-                formData.append(
-                    'latitude',
-                    String(
-                        userLocation.latitude
-                    )
-                );
-
-                formData.append(
-                    'longitude',
-                    String(
-                        userLocation.longitude
-                    )
-                );
-
-                formData.append(
-                    'location_accuracy',
-                    String(
-                        userLocation.accuracy
-                    )
-                );
-
-                console.log(
-                    'Submitting attendance:',
-                    {
-                        event_id:
-                            event.event_id,
-
-                        latitude:
-                            userLocation.latitude,
-
-                        longitude:
-                            userLocation.longitude,
-
-                        accuracy:
-                            userLocation.accuracy,
-                    }
-                );
-
-                // =================================================
-                // SEND TO LARAVEL
-                // =================================================
-
-                router.post(
-                    '/attendance/check-in',
-                    formData,
-                    {
-                        forceFormData: true,
-
-                        preserveScroll: true,
-
-                        onSuccess: () => {
-                            setFeedbackMessage({
-                                type: 'success',
-                                text: 'Attendance verified and recorded!',
-                            });
-
-                            setIsScanning(false);
-                        },
-
-                        onError: (
-                            errors: any
-                        ) => {
-                            console.error(
-                                'Attendance errors:',
-                                errors
-                            );
-
-                            setFeedbackMessage({
-                                type: 'error',
-
-                                text:
-                                    errors.attendance ||
-                                    errors.latitude ||
-                                    errors.longitude ||
-                                    errors.location_accuracy ||
-                                    errors.live_camera_frame ||
-                                    'Attendance verification failed.',
-                            });
-
-                            setIsScanning(false);
-                        },
-
-                        onFinish: () => {
-                            setIsScanning(false);
-                        },
-                    }
-                );
-            },
-
-            'image/jpeg',
-            0.95
-        );
+    const livenessText: Record<LivenessStep,string> = {
+        DETECT: 'Position one face in the frame',
+        CENTER: 'Look straight at the camera',
+        BLINK: 'Blink once',
+        TURN: 'Turn your head left or right',
+        SMILE: 'Smile to finish liveness',
+        PASSED: 'Liveness passed',
     };
 
+    const handleScanAttendance = async () => {
+        if (!videoRef.current || !userLocation || livenessStep !== 'PASSED') return;
+        if (userLocation.accuracy > 100) {
+            setFeedbackMessage({ type:'error', text:`GPS accuracy is ±${Math.round(userLocation.accuracy)} m. Wait for a better reading.` });
+            requestLocation(); return;
+        }
+
+        setIsScanning(true); setFeedbackMessage(null);
+        const video=videoRef.current;
+        const canvas=canvasRef.current || document.createElement('canvas');
+        canvas.width=video.videoWidth || 1280; canvas.height=video.videoHeight || 720;
+        const ctx=canvas.getContext('2d');
+        if (!ctx) { setIsScanning(false); return; }
+        ctx.save(); ctx.translate(canvas.width,0); ctx.scale(-1,1); ctx.drawImage(video,0,0,canvas.width,canvas.height); ctx.restore();
+
+        canvas.toBlob(blob => {
+            if (!blob) { setFeedbackMessage({type:'error',text:'Failed to capture camera frame.'}); setIsScanning(false); return; }
+            const formData=new FormData();
+            formData.append('event_id',String(event.event_id));
+            formData.append('live_camera_frame',blob,'attendance-scan.jpg');
+            formData.append('latitude',String(userLocation.latitude));
+            formData.append('longitude',String(userLocation.longitude));
+            formData.append('location_accuracy',String(userLocation.accuracy));
+            formData.append('liveness_passed','1');
+
+            router.post('/attendance/check-in',formData,{
+                forceFormData:true,
+                preserveScroll:true,
+                onSuccess:()=>{ setFeedbackMessage({type:'success',text:'Attendance verified and recorded!'}); setIsScanning(false); },
+                onError:(errors:any)=>{ setFeedbackMessage({type:'error',text:errors.attendance||errors.latitude||errors.longitude||errors.liveness_passed||errors.live_camera_frame||'Attendance verification failed.'}); setIsScanning(false); },
+                onFinish:()=>setIsScanning(false),
+            });
+        },'image/jpeg',0.95);
+    };
+
+    const ready = streamStarted && locationStatus === 'ready' && livenessStep === 'PASSED';
+
     return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-            onClick={(e) => {
-                if (
-                    e.target ===
-                    e.currentTarget
-                ) {
-                    onClose();
-                }
-            }}
-        >
-            <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[#090d16] text-gray-900 dark:text-white shadow-2xl overflow-hidden border border-gray-100 dark:border-slate-800">
-
-                {/* HEADER */}
-                <div className="relative px-6 pt-6 pb-4 border-b border-gray-100 dark:border-slate-800">
-
-                    <button
-                        onClick={onClose}
-                        className="absolute right-4 top-4 rounded-full p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
-                    >
-                        <X className="h-5 w-5" />
-                    </button>
-
-                    <h2 className="text-lg font-bold pr-8 text-gray-900 dark:text-white">
-                        {event.title}
-                    </h2>
-
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
-
-                        <span className="flex items-center gap-1">
-                            <Clock className="h-3.5 w-3.5" />
-
-                            {event.event_date}{' '}
-
-                            {formatEventTime(
-                                event.start_time,
-                                event.end_time
-                            )}
-                        </span>
-
-                        <span className="flex items-center gap-1">
-                            <MapPin className="h-3.5 w-3.5" />
-
-                            {event.location ||
-                                'Location TBA'}
-                        </span>
-
-                    </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={e=>{if(e.target===e.currentTarget) onClose();}}>
+            <div className="w-full max-w-md overflow-hidden rounded-2xl border border-gray-100 bg-white text-gray-900 shadow-2xl dark:border-slate-800 dark:bg-[#090d16] dark:text-white">
+                <div className="relative border-b border-gray-100 px-6 pb-4 pt-6 dark:border-slate-800">
+                    <button onClick={onClose} className="absolute right-4 top-4 rounded-full p-1 text-gray-400"><X className="h-5 w-5"/></button>
+                    <h2 className="pr-8 text-lg font-bold">{event.title}</h2>
+                    <p className="mt-1 text-xs text-gray-500">{event.event_date} · {formatEventTime(event.start_time,event.end_time)} · {event.location||'Location TBA'}</p>
                 </div>
-
                 <div className="flex flex-col items-center px-6 py-6">
+                    <div className="relative h-52 w-52 overflow-hidden rounded-full border-4 border-[#1B1F5C] bg-black dark:border-amber-400">
+                        <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover -scale-x-100"/>
+                        {!streamStarted && !cameraError && <div className="absolute inset-0 flex items-center justify-center bg-black/60"><RefreshCw className="h-6 w-6 animate-spin text-white"/></div>}
+                    </div>
+                    <p className={`mt-3 text-sm font-semibold ${livenessStep==='PASSED'?'text-emerald-600':'text-indigo-700'}`}>{livenessText[livenessStep]}</p>
 
-                    {/* CAMERA */}
-
-                    <div className="relative h-44 w-44 overflow-hidden rounded-full border-4 border-[#1B1F5C] dark:border-amber-400 bg-black mb-1">
-
-                        <video
-                            ref={videoRef}
-                            autoPlay
-                            playsInline
-                            muted
-                            className="h-full w-full object-cover -scale-x-100"
-                        />
-
-                        {!streamStarted &&
-                            !cameraError && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-
-                                    <RefreshCw className="h-6 w-6 animate-spin text-white/80" />
-
-                                </div>
-                            )}
-
-                        {cameraError && (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80 px-4 text-center">
-
-                                <AlertCircle className="h-6 w-6 text-white/80" />
-
-                                <p className="text-[11px] text-white/80">
-                                    {cameraError}
-                                </p>
-
-                            </div>
-                        )}
+                    <div className="mt-4 w-full rounded-lg border p-3 text-xs">
+                        {locationStatus==='loading' && 'Checking location...'}
+                        {locationStatus==='error' && <><span className="text-red-600">{locationError}</span><button onClick={requestLocation} className="ml-2 underline">Retry</button></>}
+                        {locationStatus==='ready' && userLocation && <span className="text-emerald-600">Location acquired · accuracy ±{Math.round(userLocation.accuracy)} m</span>}
                     </div>
 
-                    <p className="mb-4 text-[11px] text-gray-400 dark:text-gray-500">
-                        Center your face in the frame
-                    </p>
+                    {feedbackMessage && <div className={`mt-4 w-full rounded-lg border p-3 text-xs ${feedbackMessage.type==='success'?'border-emerald-200 bg-emerald-50 text-emerald-700':'border-red-200 bg-red-50 text-red-600'}`}>{feedbackMessage.text}</div>}
 
-                    {/* ================================================= */}
-                    {/* LOCATION STATUS */}
-                    {/* ================================================= */}
-
-                    <div className="w-full mb-4 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50 p-3">
-
-                        <div className="flex items-start gap-3">
-
-                            <MapPin
-                                className={`h-5 w-5 shrink-0 mt-0.5 ${
-                                    locationStatus ===
-                                    'ready'
-                                        ? 'text-emerald-500'
-                                        : locationStatus ===
-                                            'error'
-                                          ? 'text-red-500'
-                                          : 'text-gray-400'
-                                }`}
-                            />
-
-                            <div className="flex-1">
-
-                                <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-                                    Location verification
-                                </p>
-
-                                {locationStatus ===
-                                    'idle' && (
-                                    <p className="mt-1 text-[11px] text-gray-500">
-                                        Waiting for your
-                                        location...
-                                    </p>
-                                )}
-
-                                {locationStatus ===
-                                    'loading' && (
-                                    <div className="mt-1 flex items-center gap-2 text-[11px] text-blue-600 dark:text-blue-400">
-
-                                        <RefreshCw className="h-3 w-3 animate-spin" />
-
-                                        Checking current
-                                        location...
-
-                                    </div>
-                                )}
-
-                                {locationStatus ===
-                                    'ready' &&
-                                    userLocation && (
-                                        <>
-                                            <p className="mt-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                                                Location
-                                                acquired
-                                            </p>
-
-                                            <p className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
-
-                                                GPS accuracy:
-                                                ±
-                                                {Math.round(
-                                                    userLocation.accuracy
-                                                )}{' '}
-                                                meters
-
-                                            </p>
-
-                                            <p className="mt-0.5 font-mono text-[9px] text-gray-400">
-
-                                                {userLocation.latitude.toFixed(
-                                                    6
-                                                )}
-                                                ,{' '}
-                                                {userLocation.longitude.toFixed(
-                                                    6
-                                                )}
-
-                                            </p>
-                                        </>
-                                    )}
-
-                                {locationStatus ===
-                                    'error' && (
-                                    <>
-                                        <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">
-
-                                            {locationError}
-
-                                        </p>
-
-                                        <button
-                                            type="button"
-                                            onClick={
-                                                requestLocation
-                                            }
-                                            className="mt-1 text-[10px] font-semibold underline text-blue-600 dark:text-blue-400"
-                                        >
-                                            Try location
-                                            again
-                                        </button>
-                                    </>
-                                )}
-
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* ================================================= */}
-                    {/* FEEDBACK */}
-                    {/* ================================================= */}
-
-                    {feedbackMessage && (
-                        <div
-                            className={`w-full mb-4 flex items-center gap-2 rounded-lg p-3 text-xs font-medium ${
-                                feedbackMessage.type ===
-                                'success'
-                                    ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40'
-                                    : 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/40'
-                            }`}
-                        >
-
-                            {feedbackMessage.type ===
-                            'success' ? (
-                                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                            ) : (
-                                <AlertCircle className="h-4 w-4 shrink-0" />
-                            )}
-
-                            <span>
-                                {
-                                    feedbackMessage.text
-                                }
-                            </span>
-
-                        </div>
-                    )}
-
-                    {/* ================================================= */}
-                    {/* CHECK IN BUTTON */}
-                    {/* ================================================= */}
-
-                    <button
-                        onClick={
-                            handleScanAttendance
-                        }
-                        disabled={
-                            isScanning ||
-                            !streamStarted ||
-                            locationStatus !==
-                                'ready'
-                        }
-                        className="w-full flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-all disabled:opacity-50"
-                        style={{
-                            backgroundColor:
-                                isScanning
-                                    ? GOLD_DARK
-                                    : GOLD,
-                        }}
-                    >
-
-                        {isScanning ? (
-                            <>
-                                <RefreshCw className="h-4 w-4 animate-spin" />
-
-                                <span>
-                                    Verifying...
-                                </span>
-                            </>
-                        ) : locationStatus ===
-                          'loading' ? (
-                            <>
-                                <RefreshCw className="h-4 w-4 animate-spin" />
-
-                                <span>
-                                    Checking
-                                    location...
-                                </span>
-                            </>
-                        ) : locationStatus ===
-                          'error' ? (
-                            <>
-                                <MapPin className="h-4 w-4" />
-
-                                <span>
-                                    Location
-                                    required
-                                </span>
-                            </>
-                        ) : (
-                            <>
-                                <Camera className="h-4 w-4" />
-
-                                <span>
-                                    Scan to check in
-                                </span>
-                            </>
-                        )}
-
+                    <button onClick={handleScanAttendance} disabled={isScanning || !ready} className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-50" style={{backgroundColor:isScanning?GOLD_DARK:GOLD}}>
+                        {isScanning?<><RefreshCw className="h-4 w-4 animate-spin"/>Verifying...</>:<><Camera className="h-4 w-4"/>Scan to check in</>}
                     </button>
-
                 </div>
             </div>
-
-            <canvas
-                ref={canvasRef}
-                className="hidden"
-            />
-
+            <canvas ref={canvasRef} className="hidden"/>
         </div>
     );
 }
