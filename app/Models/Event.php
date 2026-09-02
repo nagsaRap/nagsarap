@@ -14,13 +14,27 @@ class Event extends Model
     protected $primaryKey = 'event_id';
 
     protected $fillable = [
-        'title',
-        'description',
-        'event_date',
-        'start_time',
-        'end_time',
-        'location',
-        'is_active',
+    'title',
+    'description',
+    'event_date',
+    'start_time',
+    'end_time',
+    'location',
+
+    'latitude',
+    'longitude',
+    'geofence_radius',
+    'geofence_enabled',
+
+    'is_active',
+];
+    protected $casts = [
+        'event_date' => 'date',
+        'latitude' => 'float',
+        'longitude' => 'float',
+        'geofence_radius' => 'integer',
+        'geofence_enabled' => 'boolean',
+        'is_active' => 'boolean',
     ];
 
     public function attendances(): HasMany

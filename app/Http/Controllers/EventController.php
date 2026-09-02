@@ -25,27 +25,70 @@ class EventController extends Controller
      */
     public function store(Request $request)
     {
-        $request->validate([
-            'title'       => ['required', 'string', 'max:150'],
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:150'],
             'description' => ['nullable', 'string'],
-            'event_date'  => ['required', 'date'],
-            'start_time'  => ['required'],
-            'end_time'    => ['nullable', 'after:start_time'],
-            'location'    => ['nullable', 'string', 'max:100'],
-            'is_active'   => ['boolean'],
+    
+            'event_date' => ['required', 'date'],
+            'start_time' => ['required'],
+            'end_time' => ['nullable', 'after:start_time'],
+    
+            'location' => ['nullable', 'string', 'max:100'],
+    
+            'latitude' => [
+                'required_if:geofence_enabled,true',
+                'nullable',
+                'numeric',
+                'between:-90,90'
+            ],
+    
+            'longitude' => [
+                'required_if:geofence_enabled,true',
+                'nullable',
+                'numeric',
+                'between:-180,180'
+            ],
+    
+            'geofence_radius' => [
+                'required_if:geofence_enabled,true',
+                'nullable',
+                'integer',
+                'min:10',
+                'max:5000'
+            ],
+    
+            'geofence_enabled' => ['boolean'],
+    
+            'is_active' => ['boolean'],
         ]);
-
+    
         Event::create([
-            'title'       => $request->title,
-            'description' => $request->description,
-            'event_date'  => $request->event_date,
-            'start_time'  => $request->start_time,
-            'end_time'    => $request->end_time,
-            'location'    => $request->location,
-            'is_active'   => $request->input('is_active', true),
+            'title' => $validated['title'],
+            'description' => $validated['description'] ?? null,
+    
+            'event_date' => $validated['event_date'],
+            'start_time' => $validated['start_time'],
+            'end_time' => $validated['end_time'] ?? null,
+    
+            'location' => $validated['location'] ?? null,
+    
+            'latitude' => $validated['latitude'] ?? null,
+            'longitude' => $validated['longitude'] ?? null,
+    
+            'geofence_radius' =>
+                $validated['geofence_radius'] ?? 100,
+    
+            'geofence_enabled' =>
+                $request->boolean('geofence_enabled'),
+    
+            'is_active' =>
+                $request->boolean('is_active', true),
         ]);
-
-        return back()->with('success', 'Event created successfully!');
+    
+        return back()->with(
+            'success',
+            'Event created successfully!'
+        );
     }
 
     /**

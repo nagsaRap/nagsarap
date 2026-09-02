@@ -18,6 +18,20 @@ class Attendance extends Model
         'logged_at',
         'status',
         'confidence_score',
+    
+        'latitude',
+        'longitude',
+        'location_accuracy',
+        'distance_from_event',
+        'location_verified_at',
+    ];
+
+    protected $casts = [
+        'latitude' => 'float',
+        'longitude' => 'float',
+        'location_accuracy' => 'float',
+        'distance_from_event' => 'float',
+        'location_verified_at' => 'datetime',
     ];
 
     public function student(): BelongsTo
