@@ -27,3 +27,36 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+
+# ==============================
+# Python Face Verification
+# ==============================
+
+# Python virtual environments
+/python-services/face-verification/venv/
+**/.venv/
+
+# Python cache
+**/__pycache__/
+*.py[cod]
+
+# Python testing/cache
+.pytest_cache/
+.mypy_cache/
+
+# macOS
+.DS_Store
+
+# Python Face Verification
+/python-services/face-verification/venv/
+**/.venv/
+
+# Python cache
+**/__pycache__/
+*.py[cod]
+
+# Python testing/cache
+.pytest_cache/
+.mypy_cache/
+
+test-face.jpeg
