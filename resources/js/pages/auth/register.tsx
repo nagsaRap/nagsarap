@@ -1,43 +1,54 @@
-import { useForm, Head, Link } from '@inertiajs/react';
-import InputError from '@/components/input-error';
-import PasswordInput from '@/components/password-input';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Spinner } from '@/components/ui/spinner';
-import { validateFaceImage } from '@/lib/faceValidation';
+import { Head, Link, useForm } from '@inertiajs/react';
 import {
-    Cpu,
-    Mail,
-    User,
-    Hash,
-    Upload,
+    Check,
+    Eye,
+    EyeOff,
     FileText,
-    CheckCircle2,
-    AlertCircle,
-    Loader2,
+    LockKeyhole,
+    Mail,
+    ShieldCheck,
+    Upload,
+    User,
+    X,
 } from 'lucide-react';
-import { useState, FormEvent } from 'react';
+import {
+    FormEvent,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 
-type Props = {
-    teamInvitation?: {
-        code?: string;
-    } | null;
+type RegisterForm = {
+    student_number: string;
+    surname: string;
+    firstname: string;
+    middlename: string;
+    ext: string;
+    email: string;
+    password: string;
+    password_confirmation: string;
+    profile_photo: File | null;
+    form_5: File | null;
 };
 
-const inputClass =
-    'w-full rounded-lg border border-gray-300 bg-white text-black placeholder:text-gray-400 caret-[#1B1F5C] shadow-sm transition-colors focus-visible:border-[#F5A623] focus-visible:ring-1 focus-visible:ring-[#F5A623] focus-visible:outline-none';
+export default function Register() {
+    const profilePhotoRef = useRef<HTMLInputElement>(null);
+    const form5Ref = useRef<HTMLInputElement>(null);
 
-const iconClass =
-    'pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400';
+    const [showPassword, setShowPassword] =
+        useState(false);
 
-export default function Register({}: Props) {
-    const [facePhotoName, setFacePhotoName] = useState<string>('');
-    const [form5Name, setForm5Name] = useState<string>('');
-    const [isValidatingFace, setIsValidatingFace] = useState<boolean>(false);
-    const [faceValidationError, setFaceValidationError] = useState<string | null>(null);
+    const [showConfirmPassword, setShowConfirmPassword] =
+        useState(false);
 
-    const { data, setData, post, processing, errors, reset } = useForm({
+    const {
+        data,
+        setData,
+        post,
+        processing,
+        errors,
+        reset,
+    } = useForm<RegisterForm>({
         student_number: '',
         surname: '',
         firstname: '',
@@ -46,429 +57,690 @@ export default function Register({}: Props) {
         email: '',
         password: '',
         password_confirmation: '',
-        face_photo: null as File | null,
-        face_embedding: '' as string, // <--- Stores stringified keypoints JSON
-        form_5: null as File | null,
+        profile_photo: null,
+        form_5: null,
     });
 
-    const formatStudentNumber = (value: string) => {
-        let numbers = value.replace(/\D/g, '');
-        numbers = numbers.slice(0, 8);
+    /*
+    |--------------------------------------------------------------------------
+    | Password requirements
+    |--------------------------------------------------------------------------
+    */
 
-        if (numbers.length > 2) {
-            numbers = numbers.slice(0, 2) + '-' + numbers.slice(2);
-        }
+    const passwordRequirements = useMemo(() => {
+        return {
+            minimumLength:
+                data.password.length >= 8,
 
-        return numbers;
-    };
+            uppercase:
+                /[A-Z]/.test(data.password),
 
-    const handleFacePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+            specialCharacter:
+                /[^A-Za-z0-9]/.test(data.password),
 
-        setIsValidatingFace(true);
-        setFaceValidationError(null);
+            passwordsMatch:
+                data.password.length > 0 &&
+                data.password_confirmation.length > 0 &&
+                data.password ===
+                    data.password_confirmation,
+        };
+    }, [
+        data.password,
+        data.password_confirmation,
+    ]);
 
-        // Pre-validate photo quality & extract facial keypoint embeddings
-        const validation = await validateFaceImage(file);
-        setIsValidatingFace(false);
+    const passwordValid =
+        passwordRequirements.minimumLength &&
+        passwordRequirements.uppercase &&
+        passwordRequirements.specialCharacter;
 
-        if (!validation.isValid) {
-            setFaceValidationError(validation.message || 'Invalid face photo.');
-            setFacePhotoName('');
-            setData((prevData) => ({
-                ...prevData,
-                face_photo: null,
-                face_embedding: '',
-            }));
-            e.target.value = ''; // Reset input element
+    /*
+    |--------------------------------------------------------------------------
+    | Submit
+    |--------------------------------------------------------------------------
+    */
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+
+        if (!passwordValid) {
             return;
         }
 
-        // Passed face validation check: Save photo & stringified facial embedding
-        setFaceValidationError(null);
-        setFacePhotoName(file.name);
-        
-        setData((prevData) => ({
-            ...prevData,
-            face_photo: file,
-            face_embedding: JSON.stringify(validation.embedding),
-        }));
-    };
-
-    const handleSubmit = (e: FormEvent) => {
-        e.preventDefault();
-
-        if (isValidatingFace) return;
+        if (!passwordRequirements.passwordsMatch) {
+            return;
+        }
 
         post('/register', {
             forceFormData: true,
-            onSuccess: () => reset('password', 'password_confirmation'),
+
+            onSuccess: () => {
+                reset(
+                    'password',
+                    'password_confirmation'
+                );
+            },
+
+            onError: (serverErrors) => {
+                console.error(
+                    'Registration errors:',
+                    serverErrors
+                );
+            },
+
+            onFinish: () => {
+                console.log(
+                    'Registration request finished'
+                );
+            },
         });
     };
 
     return (
-        <div className="min-h-screen w-full bg-[#F5F6FA] font-sans">
-            <Head title="Register" />
+        <>
+            <Head title="Student Registration" />
 
-            <div className="flex min-h-screen flex-col lg:flex-row">
-                {/* LEFT PANEL */}
-                <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-[#1B1F5C] p-8 text-center text-white lg:p-16">
-                    <div
-                        className="pointer-events-none absolute inset-0 opacity-15"
-                        style={{
-                            backgroundImage: `
-                                radial-gradient(#F5A623 1.5px, transparent 1.5px),
-                                linear-gradient(to right, rgba(255,255,255,0.08) 1px, transparent 1px),
-                                linear-gradient(to bottom, rgba(255,255,255,0.08) 1px, transparent 1px)
-                            `,
-                            backgroundSize: '28px 28px, 28px 28px, 28px 28px',
-                        }}
-                    />
-                    <div className="pointer-events-none absolute -left-20 -top-20 h-64 w-64 rounded-full border border-[#F5A623]/20" />
-                    <div className="pointer-events-none absolute -bottom-32 -right-32 h-80 w-80 rounded-full border border-[#F5A623]/20" />
-
-                    <div className="relative z-10">
-                        <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full border-4 border-[#F5A623] bg-white shadow-[0_0_25px_rgba(245,166,35,0.3)]">
-                            <Cpu className="h-12 w-12 text-[#1B1F5C]" />
+            <div className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6">
+                <div className="mx-auto w-full max-w-xl">
+                    {/* Header */}
+                    <div className="mb-7 text-center">
+                        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-950 text-white shadow-sm">
+                            <ShieldCheck className="h-7 w-7" />
                         </div>
-                        <h1 className="text-4xl font-extrabold tracking-wider text-[#F5A623]">CCIS</h1>
-                        <h2 className="mt-1 text-xl font-bold tracking-wide">Attendance System</h2>
-                        <p className="mx-auto mt-4 max-w-xs text-sm leading-relaxed text-white/70">
-                            Create your student account and experience smarter attendance tracking.
+
+                        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                            Create Student Account
+                        </h1>
+
+                        <p className="mt-2 text-sm leading-6 text-slate-500">
+                            Register your student information
+                            before biometric verification.
                         </p>
-                        <div className="mx-auto mt-8 h-1 w-16 rounded-full bg-[#F5A623]" />
                     </div>
-                </div>
 
-                {/* RIGHT PANEL */}
-                <div className="flex flex-1 items-center justify-center bg-[#F5F6FA] p-6 lg:p-12">
-                    <div className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-8 shadow-xl lg:p-9">
-                        <div className="mb-7 text-center">
-                            <h3 className="text-2xl font-bold text-[#1B1F5C]">Create Student Account</h3>
-                            <p className="mt-2 text-xs text-gray-500">Register for the CCIS Attendance System</p>
+                    <form
+                        onSubmit={submit}
+                        className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
+                    >
+                        {/* Student Number */}
+                        <FieldLabel
+                            label="Student Number"
+                            required
+                        />
+
+                        <div className="relative">
+                            <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+                            <input
+                                type="text"
+                                value={data.student_number}
+                                onChange={(e) =>
+                                    setData(
+                                        'student_number',
+                                        e.target.value
+                                    )
+                                }
+                                placeholder="e.g. 23-140012"
+                                autoComplete="off"
+                                className={inputClass(
+                                    !!errors.student_number,
+                                    true
+                                )}
+                            />
                         </div>
 
-                        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-                            {/* STUDENT NUMBER */}
-                            <div className="grid gap-2">
-                                <Label htmlFor="student_number" className="text-xs font-semibold text-gray-700">
-                                    Student Number <span className="ml-1 text-[#F5A623]">*</span>
-                                </Label>
-                                <div className="relative">
-                                    <Hash className={iconClass} />
-                                    <Input
-                                        id="student_number"
-                                        type="text"
-                                        name="student_number"
-                                        value={data.student_number}
-                                        required
-                                        autoFocus
-                                        tabIndex={1}
-                                        autoComplete="off"
-                                        inputMode="numeric"
-                                        maxLength={9}
-                                        placeholder="e.g. 23-140040"
-                                        pattern="[0-9]{2}-[0-9]{6}"
-                                        onChange={(e) => {
-                                            const formatted = formatStudentNumber(e.target.value);
-                                            setData('student_number', formatted);
-                                        }}
-                                        className={`${inputClass} pl-9`}
-                                    />
-                                </div>
-                                <p className="text-[11px] text-gray-400">Format: YY-NNNNNN (e.g. 23-140040)</p>
-                                <InputError message={errors.student_number} />
+                        <p className="mt-1.5 text-xs text-slate-400">
+                            Your college will be detected
+                            automatically from your student
+                            number.
+                        </p>
+
+                        <FieldError
+                            message={errors.student_number}
+                        />
+
+                        {/* Name */}
+                        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <FieldLabel
+                                    label="Surname"
+                                    required
+                                />
+
+                                <input
+                                    type="text"
+                                    value={data.surname}
+                                    onChange={(e) =>
+                                        setData(
+                                            'surname',
+                                            e.target.value
+                                        )
+                                    }
+                                    placeholder="e.g. Gabion"
+                                    className={inputClass(
+                                        !!errors.surname
+                                    )}
+                                />
+
+                                <FieldError
+                                    message={errors.surname}
+                                />
                             </div>
 
-                            {/* SURNAME + FIRST NAME */}
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                {/* SURNAME */}
-                                <div className="grid gap-2">
-                                    <Label htmlFor="surname" className="text-xs font-semibold text-gray-700">
-                                        Surname <span className="ml-1 text-[#F5A623]">*</span>
-                                    </Label>
-                                    <div className="relative">
-                                        <User className={iconClass} />
-                                        <Input
-                                            id="surname"
-                                            type="text"
-                                            name="surname"
-                                            value={data.surname}
-                                            required
-                                            tabIndex={2}
-                                            autoComplete="family-name"
-                                            placeholder="Surname"
-                                            onChange={(e) => setData('surname', e.target.value)}
-                                            className={`${inputClass} pl-9`}
-                                        />
-                                    </div>
-                                    <InputError message={errors.surname} />
-                                </div>
+                            <div>
+                                <FieldLabel
+                                    label="First Name"
+                                    required
+                                />
 
-                                {/* FIRST NAME */}
-                                <div className="grid gap-2">
-                                    <Label htmlFor="firstname" className="text-xs font-semibold text-gray-700">
-                                        First Name <span className="ml-1 text-[#F5A623]">*</span>
-                                    </Label>
-                                    <div className="relative">
-                                        <User className={iconClass} />
-                                        <Input
-                                            id="firstname"
-                                            type="text"
-                                            name="firstname"
-                                            value={data.firstname}
-                                            required
-                                            tabIndex={3}
-                                            autoComplete="given-name"
-                                            placeholder="First name"
-                                            onChange={(e) => setData('firstname', e.target.value)}
-                                            className={`${inputClass} pl-9`}
-                                        />
-                                    </div>
-                                    <InputError message={errors.firstname} />
-                                </div>
+                                <input
+                                    type="text"
+                                    value={data.firstname}
+                                    onChange={(e) =>
+                                        setData(
+                                            'firstname',
+                                            e.target.value
+                                        )
+                                    }
+                                    placeholder="e.g. Raphael Louis"
+                                    className={inputClass(
+                                        !!errors.firstname
+                                    )}
+                                />
+
+                                <FieldError
+                                    message={errors.firstname}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <FieldLabel label="Middle Name" />
+
+                                <input
+                                    type="text"
+                                    value={data.middlename}
+                                    onChange={(e) =>
+                                        setData(
+                                            'middlename',
+                                            e.target.value
+                                        )
+                                    }
+                                    placeholder="e.g. Pedronan"
+                                    className={inputClass(
+                                        !!errors.middlename
+                                    )}
+                                />
+
+                                <FieldError
+                                    message={errors.middlename}
+                                />
                             </div>
 
-                            {/* MIDDLE NAME + EXTENSION */}
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                                <div className="grid gap-2 sm:col-span-2">
-                                    <Label htmlFor="middlename" className="text-xs font-semibold text-gray-700">
-                                        Middle Name
-                                    </Label>
-                                    <Input
-                                        id="middlename"
-                                        type="text"
-                                        name="middlename"
-                                        value={data.middlename}
-                                        tabIndex={4}
-                                        autoComplete="additional-name"
-                                        placeholder="Middle name"
-                                        onChange={(e) => setData('middlename', e.target.value)}
-                                        className={inputClass}
-                                    />
-                                    <InputError message={errors.middlename} />
-                                </div>
+                            <div>
+                                <FieldLabel label="Extension" />
 
-                                <div className="grid gap-2">
-                                    <Label htmlFor="ext" className="text-xs font-semibold text-gray-700">
-                                        Extension
-                                    </Label>
-                                    <Input
-                                        id="ext"
-                                        type="text"
-                                        name="ext"
-                                        value={data.ext}
-                                        tabIndex={5}
-                                        placeholder="Jr., Sr."
-                                        onChange={(e) => setData('ext', e.target.value)}
-                                        className={inputClass}
-                                    />
-                                    <InputError message={errors.ext} />
-                                </div>
+                                <input
+                                    type="text"
+                                    value={data.ext}
+                                    onChange={(e) =>
+                                        setData(
+                                            'ext',
+                                            e.target.value
+                                        )
+                                    }
+                                    placeholder="e.g. Jr., Sr., III"
+                                    className={inputClass(
+                                        !!errors.ext
+                                    )}
+                                />
+
+                                <FieldError
+                                    message={errors.ext}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Email */}
+                        <div className="mt-5">
+                            <FieldLabel
+                                label="Email Address"
+                                required
+                            />
+
+                            <div className="relative">
+                                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+                                <input
+                                    type="email"
+                                    value={data.email}
+                                    onChange={(e) =>
+                                        setData(
+                                            'email',
+                                            e.target.value
+                                        )
+                                    }
+                                    placeholder="e.g. student@example.com"
+                                    autoComplete="email"
+                                    className={inputClass(
+                                        !!errors.email,
+                                        true
+                                    )}
+                                />
                             </div>
 
-                            {/* EMAIL */}
-                            <div className="grid gap-2">
-                                <Label htmlFor="email" className="text-xs font-semibold text-gray-700">
-                                    Email Address <span className="ml-1 text-[#F5A623]">*</span>
-                                </Label>
-                                <div className="relative">
-                                    <Mail className={iconClass} />
-                                    <Input
-                                        id="email"
-                                        type="email"
-                                        name="email"
-                                        value={data.email}
-                                        required
-                                        tabIndex={6}
-                                        autoComplete="email"
-                                        placeholder="Enter your email address"
-                                        onChange={(e) => setData('email', e.target.value)}
-                                        className={`${inputClass} pl-9`}
-                                    />
-                                </div>
-                                <InputError message={errors.email} />
-                            </div>
+                            <FieldError
+                                message={errors.email}
+                            />
+                        </div>
 
-                            {/* PASSWORD */}
-                            <div className="grid gap-2">
-                                <Label htmlFor="password" className="text-xs font-semibold text-gray-700">
-                                    Password <span className="ml-1 text-[#F5A623]">*</span>
-                                </Label>
-                                <PasswordInput
-                                    id="password"
-                                    name="password"
+                        {/* Password */}
+                        <div className="mt-5">
+                            <FieldLabel
+                                label="Password"
+                                required
+                            />
+
+                            <div className="relative">
+                                <LockKeyhole className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+                                <input
+                                    type={
+                                        showPassword
+                                            ? 'text'
+                                            : 'password'
+                                    }
                                     value={data.password}
-                                    required
-                                    tabIndex={7}
+                                    onChange={(e) =>
+                                        setData(
+                                            'password',
+                                            e.target.value
+                                        )
+                                    }
+                                    placeholder="Create a secure password"
                                     autoComplete="new-password"
-                                    placeholder="Create a password"
-                                    onChange={(e) => setData('password', e.target.value)}
-                                    className={inputClass}
+                                    className={`${inputClass(
+                                        !!errors.password,
+                                        true
+                                    )} pr-11`}
                                 />
-                                <InputError message={errors.password} />
-                            </div>
 
-                            {/* CONFIRM PASSWORD */}
-                            <div className="grid gap-2">
-                                <Label htmlFor="password_confirmation" className="text-xs font-semibold text-gray-700">
-                                    Confirm Password <span className="ml-1 text-[#F5A623]">*</span>
-                                </Label>
-                                <PasswordInput
-                                    id="password_confirmation"
-                                    name="password_confirmation"
-                                    value={data.password_confirmation}
-                                    required
-                                    tabIndex={8}
-                                    autoComplete="new-password"
-                                    placeholder="Confirm your password"
-                                    onChange={(e) => setData('password_confirmation', e.target.value)}
-                                    className={inputClass}
-                                />
-                                <InputError message={errors.password_confirmation} />
-                            </div>
-
-                            {/* FACE PHOTO */}
-                            <div className="grid gap-2">
-                                <Label htmlFor="face_photo" className="text-xs font-semibold text-gray-700">
-                                    Reference Photo (Face Liveness) <span className="ml-1 text-[#F5A623]">*</span>
-                                </Label>
-                                <label
-                                    htmlFor="face_photo"
-                                    className="group flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-white px-4 py-3 transition-all hover:border-[#F5A623] hover:bg-[#FFFBF3]"
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setShowPassword(
+                                            (current) =>
+                                                !current
+                                        )
+                                    }
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
+                                    aria-label={
+                                        showPassword
+                                            ? 'Hide password'
+                                            : 'Show password'
+                                    }
                                 >
-                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#1B1F5C]/10 transition-colors group-hover:bg-[#F5A623]/20">
-                                        {isValidatingFace ? (
-                                            <Loader2 className="h-4 w-4 animate-spin text-[#1B1F5C]" />
-                                        ) : facePhotoName && data.face_embedding ? (
-                                            <CheckCircle2 className="h-4 w-4 text-green-600" />
-                                        ) : (
-                                            <Upload className="h-4 w-4 text-[#1B1F5C]" />
-                                        )}
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className="text-sm font-medium text-gray-700 group-hover:text-[#1B1F5C]">
-                                            {isValidatingFace
-                                                ? 'Analyzing photo clarity & extracting keypoints...'
-                                                : facePhotoName || 'Upload reference face photo'}
-                                        </p>
-                                        <p className="mt-0.5 text-xs text-gray-400">JPG, JPEG, or PNG (Sharp & unblurred, Max 5MB)</p>
-                                    </div>
-                                    <Input
-                                        id="face_photo"
-                                        type="file"
-                                        name="face_photo"
-                                        accept="image/jpeg,image/png,image/jpg"
-                                        required
-                                        tabIndex={9}
-                                        disabled={isValidatingFace}
-                                        className="hidden"
-                                        onChange={handleFacePhotoChange}
-                                    />
-                                </label>
-
-                                {/* INSTANT BLUR / FACE VALIDATION ERROR ALERT */}
-                                {faceValidationError && (
-                                    <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs font-medium text-red-600">
-                                        <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
-                                        <span>{faceValidationError}</span>
-                                    </div>
-                                )}
-
-                                {data.face_embedding && !faceValidationError && (
-                                    <p className="text-[11px] font-semibold text-emerald-600">
-                                        ✓ Facial keypoints successfully extracted for liveness matching!
-                                    </p>
-                                )}
-
-                                <InputError message={errors.face_photo} />
-                                <InputError message={errors.face_embedding} />
+                                    {showPassword ? (
+                                        <EyeOff className="h-4 w-4" />
+                                    ) : (
+                                        <Eye className="h-4 w-4" />
+                                    )}
+                                </button>
                             </div>
 
-                            {/* FORM 5 DOCUMENT */}
-                            <div className="grid gap-2">
-                                <Label htmlFor="form_5" className="text-xs font-semibold text-gray-700">
-                                    Form 5 Document <span className="ml-1 text-[#F5A623]">*</span>
-                                </Label>
-                                <label
-                                    htmlFor="form_5"
-                                    className="group flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-white px-4 py-3 transition-all hover:border-[#F5A623] hover:bg-[#FFFBF3]"
-                                >
-                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#1B1F5C]/10 transition-colors group-hover:bg-[#F5A623]/20">
-                                        {form5Name ? (
-                                            <CheckCircle2 className="h-4 w-4 text-green-600" />
-                                        ) : (
-                                            <FileText className="h-4 w-4 text-[#1B1F5C]" />
-                                        )}
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className="text-sm font-medium text-gray-700 group-hover:text-[#1B1F5C]">
-                                            {form5Name || 'Upload Form 5'}
-                                        </p>
-                                        <p className="mt-0.5 text-xs text-gray-400">PDF only (Max 10MB)</p>
-                                    </div>
-                                    <Input
-                                        id="form_5"
-                                        type="file"
-                                        name="form_5"
-                                        accept="application/pdf,.pdf"
-                                        required
-                                        tabIndex={10}
-                                        className="hidden"
-                                        onChange={(e) => {
-                                            const file = e.target.files?.[0];
-                                            if (file) {
-                                                setData('form_5', file);
-                                                setForm5Name(file.name);
-                                            }
-                                        }}
-                                    />
-                                </label>
-                                <InputError message={errors.form_5} />
+                            {/* Live password checklist */}
+                            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                <p className="mb-2 text-xs font-semibold text-slate-600">
+                                    Your password must contain:
+                                </p>
+
+                                <div className="space-y-2">
+                                    <Requirement
+                                        valid={
+                                            passwordRequirements.minimumLength
+                                        }
+                                    >
+                                        At least 8 characters
+                                    </Requirement>
+
+                                    <Requirement
+                                        valid={
+                                            passwordRequirements.uppercase
+                                        }
+                                    >
+                                        At least one uppercase
+                                        letter (A-Z)
+                                    </Requirement>
+
+                                    <Requirement
+                                        valid={
+                                            passwordRequirements.specialCharacter
+                                        }
+                                    >
+                                        At least one special
+                                        character (!@#$...)
+                                    </Requirement>
+                                </div>
                             </div>
 
-                            {/* SUBMIT BUTTON */}
-                            <Button
-                                type="submit"
-                                disabled={processing || isValidatingFace || !data.face_embedding}
-                                tabIndex={11}
-                                data-test="register-button"
-                                className="mt-3 w-full rounded-lg bg-[#1B1F5C] py-2.5 font-medium text-white shadow-md transition-all hover:border-b-2 hover:border-[#F5A623] hover:bg-[#131644] focus-visible:ring-2 focus-visible:ring-[#F5A623] focus-visible:ring-offset-2 disabled:opacity-50"
-                            >
-                                {(processing || isValidatingFace) && <Spinner className="mr-2" />}
-                                Create Student Account & Verify
-                            </Button>
-
-                            {/* LOGIN LINK */}
-                            <div className="mt-3 text-center text-xs text-gray-500">
-                                Already have an account?{' '}
-                                <Link
-                                    href="/login"
-                                    className="font-bold text-[#1B1F5C] transition-colors hover:text-[#F5A623]"
-                                >
-                                    Log in here
-                                </Link>
-                            </div>
-                        </form>
-
-                        {/* BACK HOME */}
-                        <div className="mt-6 text-center">
-                            <Link
-                                href="/"
-                                className="text-xs text-gray-400 transition-colors hover:text-[#1B1F5C]"
-                            >
-                                ← Back to Home
-                            </Link>
+                            <FieldError
+                                message={errors.password}
+                            />
                         </div>
-                    </div>
+
+                        {/* Confirm Password */}
+                        <div className="mt-5">
+                            <FieldLabel
+                                label="Confirm Password"
+                                required
+                            />
+
+                            <div className="relative">
+                                <LockKeyhole className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+                                <input
+                                    type={
+                                        showConfirmPassword
+                                            ? 'text'
+                                            : 'password'
+                                    }
+                                    value={
+                                        data.password_confirmation
+                                    }
+                                    onChange={(e) =>
+                                        setData(
+                                            'password_confirmation',
+                                            e.target.value
+                                        )
+                                    }
+                                    placeholder="Re-enter your password"
+                                    autoComplete="new-password"
+                                    className={`${inputClass(
+                                        false,
+                                        true
+                                    )} pr-11`}
+                                />
+
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setShowConfirmPassword(
+                                            (current) =>
+                                                !current
+                                        )
+                                    }
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
+                                >
+                                    {showConfirmPassword ? (
+                                        <EyeOff className="h-4 w-4" />
+                                    ) : (
+                                        <Eye className="h-4 w-4" />
+                                    )}
+                                </button>
+                            </div>
+
+                            {data.password_confirmation
+                                .length > 0 && (
+                                <div className="mt-2">
+                                    <Requirement
+                                        valid={
+                                            passwordRequirements.passwordsMatch
+                                        }
+                                    >
+                                        Passwords match
+                                    </Requirement>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Reference Photo */}
+                        <div className="mt-6">
+                            <FieldLabel
+                                label="Reference Photo"
+                                required
+                            />
+
+                            <input
+                                ref={profilePhotoRef}
+                                type="file"
+                                accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                className="hidden"
+                                onChange={(e) =>
+                                    setData(
+                                        'profile_photo',
+                                        e.target.files?.[0] ??
+                                            null
+                                    )
+                                }
+                            />
+
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    profilePhotoRef.current?.click()
+                                }
+                                className={`flex w-full items-center gap-3 rounded-xl border border-dashed p-4 text-left transition ${
+                                    errors.profile_photo
+                                        ? 'border-red-300 bg-red-50'
+                                        : 'border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/40'
+                                }`}
+                            >
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100">
+                                    {data.profile_photo ? (
+                                        <Check className="h-5 w-5 text-emerald-600" />
+                                    ) : (
+                                        <Upload className="h-5 w-5 text-slate-500" />
+                                    )}
+                                </div>
+
+                                <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium text-slate-700">
+                                        {data.profile_photo
+                                            ? data.profile_photo
+                                                  .name
+                                            : 'Upload your reference photo'}
+                                    </p>
+
+                                    <p className="mt-0.5 text-xs text-slate-400">
+                                        JPG, JPEG or PNG • Max
+                                        5MB
+                                    </p>
+                                </div>
+                            </button>
+
+                            <FieldError
+                                message={
+                                    errors.profile_photo
+                                }
+                            />
+                        </div>
+
+                        {/* Form 5 */}
+                        <div className="mt-5">
+                            <FieldLabel
+                                label="Form 5 Document"
+                                required
+                            />
+
+                            <input
+                                ref={form5Ref}
+                                type="file"
+                                accept=".pdf,application/pdf"
+                                className="hidden"
+                                onChange={(e) =>
+                                    setData(
+                                        'form_5',
+                                        e.target.files?.[0] ??
+                                            null
+                                    )
+                                }
+                            />
+
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    form5Ref.current?.click()
+                                }
+                                className={`flex w-full items-center gap-3 rounded-xl border border-dashed p-4 text-left transition ${
+                                    errors.form_5
+                                        ? 'border-red-300 bg-red-50'
+                                        : 'border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/40'
+                                }`}
+                            >
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100">
+                                    {data.form_5 ? (
+                                        <Check className="h-5 w-5 text-emerald-600" />
+                                    ) : (
+                                        <FileText className="h-5 w-5 text-slate-500" />
+                                    )}
+                                </div>
+
+                                <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium text-slate-700">
+                                        {data.form_5
+                                            ? data.form_5.name
+                                            : 'Upload your Form 5'}
+                                    </p>
+
+                                    <p className="mt-0.5 text-xs text-slate-400">
+                                        PDF only • Max 10MB
+                                    </p>
+                                </div>
+                            </button>
+
+                            <FieldError
+                                message={errors.form_5}
+                            />
+                        </div>
+
+                        {/* Submit */}
+                        <button
+                            type="submit"
+                            disabled={
+                                processing ||
+                                !passwordValid ||
+                                !passwordRequirements.passwordsMatch
+                            }
+                            className="mt-7 flex h-12 w-full items-center justify-center rounded-xl bg-indigo-950 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {processing
+                                ? 'Creating Account...'
+                                : 'Create Student Account & Verify'}
+                        </button>
+
+                        {(Object.keys(errors).length >
+                            0) && (
+                            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                                Registration failed. Please
+                                review the highlighted fields.
+                            </div>
+                        )}
+
+                        <p className="mt-6 text-center text-sm text-slate-500">
+                            Already have an account?{' '}
+                            <Link
+                                href="/login"
+                                className="font-semibold text-indigo-950 hover:underline"
+                            >
+                                Log in here
+                            </Link>
+                        </p>
+                    </form>
                 </div>
             </div>
+        </>
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Reusable components
+|--------------------------------------------------------------------------
+*/
+
+function FieldLabel({
+    label,
+    required = false,
+}: {
+    label: string;
+    required?: boolean;
+}) {
+    return (
+        <label className="mb-1.5 block text-sm font-medium text-slate-700">
+            {label}
+
+            {required && (
+                <span className="ml-1 text-red-500">
+                    *
+                </span>
+            )}
+        </label>
+    );
+}
+
+function FieldError({
+    message,
+}: {
+    message?: string;
+}) {
+    if (!message) {
+        return null;
+    }
+
+    return (
+        <p className="mt-1.5 text-xs font-medium text-red-600">
+            {message}
+        </p>
+    );
+}
+
+function Requirement({
+    valid,
+    children,
+}: {
+    valid: boolean;
+    children: React.ReactNode;
+}) {
+    return (
+        <div
+            className={`flex items-center gap-2 text-xs ${
+                valid
+                    ? 'font-medium text-emerald-600'
+                    : 'text-slate-500'
+            }`}
+        >
+            <span
+                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${
+                    valid
+                        ? 'bg-emerald-100'
+                        : 'bg-slate-200'
+                }`}
+            >
+                {valid ? (
+                    <Check className="h-3 w-3" />
+                ) : (
+                    <X className="h-3 w-3" />
+                )}
+            </span>
+
+            {children}
         </div>
     );
 }
 
-Register.layout = {
-    title: 'Create an Account',
-    description: 'Register for the CCIS Attendance System',
-};
+function inputClass(
+    hasError: boolean,
+    hasLeftIcon = false
+) {
+    return [
+        'h-11 w-full rounded-xl border bg-white text-sm text-slate-900',
+        'outline-none transition',
+        'placeholder:text-slate-400',
+        'focus:ring-2',
+        hasLeftIcon ? 'pl-10 pr-3' : 'px-3',
+        hasError
+            ? 'border-red-300 focus:border-red-400 focus:ring-red-100'
+            : 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-100',
+    ].join(' ');
+}

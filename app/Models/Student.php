@@ -23,10 +23,16 @@ class Student extends Model
         'middlename',
         'ext',
         'email',
-        'degree_id',
-        'curricula_id',
         'entrance_status',
-        'rfid',
+
+        'college_code',
+        'college',
+
+        'degree',
+        'year_section',
+        'semester',
+        'academic_year',
+
 
         'verification_status',
         'face_photo_path',
