@@ -8,41 +8,63 @@ class ApiService {
 
   static final ApiService instance = ApiService._();
 
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
   late final Dio dio =
       Dio(
           BaseOptions(
             baseUrl: ApiConfig.baseUrl,
-            connectTimeout: const Duration(seconds: 20),
-            receiveTimeout: const Duration(seconds: 30),
-            sendTimeout: const Duration(seconds: 30),
-            headers: {'Accept': 'application/json'},
+            connectTimeout: ApiConfig.connectTimeout,
+            receiveTimeout: ApiConfig.receiveTimeout,
+            sendTimeout: ApiConfig.sendTimeout,
+            headers: const {'Accept': 'application/json'},
           ),
         )
         ..interceptors.add(
           InterceptorsWrapper(
-            onRequest: (options, handler) async {
-              final token = await _storage.read(key: 'auth_token');
+            onRequest:
+                (
+                  RequestOptions options,
+                  RequestInterceptorHandler handler,
+                ) async {
+                  final token = await getToken();
 
-              if (token != null && token.isNotEmpty) {
-                options.headers['Authorization'] = 'Bearer $token';
-              }
+                  if (token != null && token.isNotEmpty) {
+                    options.headers['Authorization'] = 'Bearer $token';
+                  }
 
-              handler.next(options);
+                  handler.next(options);
+                },
+
+            onError: (DioException error, ErrorInterceptorHandler handler) {
+              handler.next(error);
             },
           ),
         );
 
+  /*
+  |--------------------------------------------------------------------------
+  | TOKEN STORAGE
+  |--------------------------------------------------------------------------
+  */
+
+  static const String _tokenKey = 'auth_token';
+
   Future<void> saveToken(String token) async {
-    await _storage.write(key: 'auth_token', value: token);
+    await _storage.write(key: _tokenKey, value: token);
   }
 
   Future<String?> getToken() async {
-    return _storage.read(key: 'auth_token');
+    return _storage.read(key: _tokenKey);
   }
 
   Future<void> removeToken() async {
-    await _storage.delete(key: 'auth_token');
+    await _storage.delete(key: _tokenKey);
+  }
+
+  Future<bool> hasToken() async {
+    final token = await getToken();
+
+    return token != null && token.isNotEmpty;
   }
 }
