@@ -11,21 +11,60 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
+use Laravel\Fortify\Contracts\RegisterResponse;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
 
 class FortifyServiceProvider extends ServiceProvider
 {
     /**
-     * Register any application services.
+     * Register application services.
      */
     public function register(): void
     {
-        //
+        /*
+        |--------------------------------------------------------------------------
+        | Custom post-registration response
+        |--------------------------------------------------------------------------
+        |
+        | By default Fortify normally redirects a newly registered user to
+        | the configured home/dashboard route.
+        |
+        | For the CCIS Attendance System we need:
+        |
+        | Registration
+        |      ↓
+        | Create Student + User
+        |      ↓
+        | Automatically authenticated by Fortify
+        |      ↓
+        | /register/verify-face
+        |      ↓
+        | MediaPipe liveness
+        |      ↓
+        | InsightFace verification
+        |      ↓
+        | dashboard
+        |
+        */
+
+        $this->app->singleton(
+            RegisterResponse::class,
+            function () {
+                return new class implements RegisterResponse
+                {
+                    public function toResponse($request)
+                    {
+                        return redirect()
+                            ->route('register.verify-face');
+                    }
+                };
+            }
+        );
     }
 
     /**
-     * Bootstrap any application services.
+     * Bootstrap application services.
      */
     public function boot(): void
     {
@@ -39,8 +78,13 @@ class FortifyServiceProvider extends ServiceProvider
      */
     private function configureActions(): void
     {
-        Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
-        Fortify::createUsersUsing(CreateNewUser::class);
+        Fortify::resetUserPasswordsUsing(
+            ResetUserPassword::class
+        );
+
+        Fortify::createUsersUsing(
+            CreateNewUser::class
+        );
     }
 
     /**
@@ -48,53 +92,207 @@ class FortifyServiceProvider extends ServiceProvider
      */
     private function configureViews(): void
     {
-        Fortify::loginView(fn (Request $request) => Inertia::render('auth/login', [
-            'canResetPassword' => Features::enabled(Features::resetPasswords()),
-            'status' => $request->session()->get('status'),
-        ]));
+        /*
+        |--------------------------------------------------------------------------
+        | Login
+        |--------------------------------------------------------------------------
+        */
 
-        Fortify::resetPasswordView(fn (Request $request) => Inertia::render('auth/reset-password', [
-            'email' => $request->email,
-            'token' => $request->route('token'),
-            'passwordRules' => Password::defaults()->toPasswordRulesString(),
-        ]));
+        Fortify::loginView(
+            fn (Request $request) =>
+                Inertia::render('auth/login', [
+                    'canResetPassword' =>
+                        Features::enabled(
+                            Features::resetPasswords()
+                        ),
 
-        Fortify::requestPasswordResetLinkView(fn (Request $request) => Inertia::render('auth/forgot-password', [
-            'status' => $request->session()->get('status'),
-        ]));
+                    'status' =>
+                        $request
+                            ->session()
+                            ->get('status'),
+                ])
+        );
 
-        Fortify::verifyEmailView(fn (Request $request) => Inertia::render('auth/verify-email', [
-            'status' => $request->session()->get('status'),
-        ]));
+        /*
+        |--------------------------------------------------------------------------
+        | Reset password
+        |--------------------------------------------------------------------------
+        */
 
-        Fortify::registerView(fn () => Inertia::render('auth/register', [
-            'passwordRules' => Password::defaults()->toPasswordRulesString(),
-        ]));
+        Fortify::resetPasswordView(
+            fn (Request $request) =>
+                Inertia::render(
+                    'auth/reset-password',
+                    [
+                        'email' =>
+                            $request->email,
 
-        Fortify::twoFactorChallengeView(fn () => Inertia::render('auth/two-factor-challenge'));
+                        'token' =>
+                            $request
+                                ->route('token'),
 
-        Fortify::confirmPasswordView(fn () => Inertia::render('auth/confirm-password'));
+                        'passwordRules' =>
+                            Password::defaults()
+                                ->toPasswordRulesString(),
+                    ]
+                )
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Forgot password
+        |--------------------------------------------------------------------------
+        */
+
+        Fortify::requestPasswordResetLinkView(
+            fn (Request $request) =>
+                Inertia::render(
+                    'auth/forgot-password',
+                    [
+                        'status' =>
+                            $request
+                                ->session()
+                                ->get('status'),
+                    ]
+                )
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Email verification
+        |--------------------------------------------------------------------------
+        */
+
+        Fortify::verifyEmailView(
+            fn (Request $request) =>
+                Inertia::render(
+                    'auth/verify-email',
+                    [
+                        'status' =>
+                            $request
+                                ->session()
+                                ->get('status'),
+                    ]
+                )
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Registration
+        |--------------------------------------------------------------------------
+        */
+
+        Fortify::registerView(
+            fn () =>
+                Inertia::render(
+                    'auth/register',
+                    [
+                        'passwordRules' =>
+                            Password::defaults()
+                                ->toPasswordRulesString(),
+                    ]
+                )
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Two-factor challenge
+        |--------------------------------------------------------------------------
+        */
+
+        Fortify::twoFactorChallengeView(
+            fn () =>
+                Inertia::render(
+                    'auth/two-factor-challenge'
+                )
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Confirm password
+        |--------------------------------------------------------------------------
+        */
+
+        Fortify::confirmPasswordView(
+            fn () =>
+                Inertia::render(
+                    'auth/confirm-password'
+                )
+        );
     }
 
     /**
-     * Configure rate limiting.
+     * Configure Fortify rate limiting.
      */
     private function configureRateLimiting(): void
     {
-        RateLimiter::for('two-factor', function (Request $request) {
-            return Limit::perMinute(5)->by($request->session()->get('login.id'));
-        });
+        /*
+        |--------------------------------------------------------------------------
+        | Two-factor rate limiting
+        |--------------------------------------------------------------------------
+        */
 
-        RateLimiter::for('login', function (Request $request) {
-            $throttleKey = Str::transliterate(Str::lower($request->input(Fortify::username())).'|'.$request->ip());
+        RateLimiter::for(
+            'two-factor',
+            function (Request $request) {
+                return Limit::perMinute(5)
+                    ->by(
+                        $request
+                            ->session()
+                            ->get('login.id')
+                    );
+            }
+        );
 
-            return Limit::perMinute(5)->by($throttleKey);
-        });
+        /*
+        |--------------------------------------------------------------------------
+        | Login rate limiting
+        |--------------------------------------------------------------------------
+        */
 
-        RateLimiter::for('passkeys', function (Request $request) {
-            return Limit::perMinute(10)->by(
-                ($request->input('credential.id') ?: $request->session()->getId()).'|'.$request->ip(),
-            );
-        });
+        RateLimiter::for(
+            'login',
+            function (Request $request) {
+                $throttleKey =
+                    Str::transliterate(
+                        Str::lower(
+                            $request->input(
+                                Fortify::username()
+                            )
+                        ).
+                        '|'.
+                        $request->ip()
+                    );
+
+                return Limit::perMinute(5)
+                    ->by($throttleKey);
+            }
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Passkey rate limiting
+        |--------------------------------------------------------------------------
+        */
+
+        RateLimiter::for(
+            'passkeys',
+            function (Request $request) {
+                return Limit::perMinute(10)
+                    ->by(
+                        (
+                            $request->input(
+                                'credential.id'
+                            )
+                            ?:
+                            $request
+                                ->session()
+                                ->getId()
+                        ).
+                        '|'.
+                        $request->ip()
+                    );
+            }
+        );
     }
 }

@@ -1,35 +1,45 @@
 import { createInertiaApp } from '@inertiajs/react';
+
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
+
 import { initializeTheme } from '@/hooks/use-appearance';
+
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 
-const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
+const appName =
+    import.meta.env.VITE_APP_NAME ||
+    'CCIS Attendance System';
 
 createInertiaApp({
-    title: (title) => (title ? `${title} - ${appName}` : appName),
+    title: (title) =>
+        title
+            ? `${title} - ${appName}`
+            : appName,
 
     layout: (name) => {
         switch (true) {
-            // Public landing page
+            // Landing page
             case name === 'welcome':
                 return null;
 
-            // Authentication pages
-            // These pages have their own full-screen designs
+            // Login / register / verify face
             case name.startsWith('auth/'):
                 return null;
 
-            // Settings pages
+            // Student dashboard has its own full-page UI
+            case name === 'dashboard':
+                return null;
+
+            // Settings may still use starter layout
             case name.startsWith('settings/'):
-                return [AppLayout, SettingsLayout];
+                return [
+                    AppLayout,
+                    SettingsLayout,
+                ];
 
-            // Team pages
-            case name.startsWith('teams/'):
-                return AppLayout;
-
-            // Default application pages
+            // Admin / organizer can continue using layout
             default:
                 return AppLayout;
         }
@@ -41,15 +51,15 @@ createInertiaApp({
         return (
             <TooltipProvider delayDuration={0}>
                 {app}
+
                 <Toaster />
             </TooltipProvider>
         );
     },
 
     progress: {
-        color: '#4B5563',
+        color: '#D39A2C',
     },
 });
 
-// This will set light / dark mode on load...
 initializeTheme();
